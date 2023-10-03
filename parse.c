@@ -26,7 +26,7 @@ char g_label[MAX_NAME_LENGTH + 1];
 char g_expanded_macro_string[MAX_NAME_LENGTH + 1];
 double g_parsed_double;
 
-#ifdef SPC700
+#if defined(SPC700)
 int g_input_number_expects_dot = NO;
 #endif
 
@@ -40,7 +40,7 @@ extern struct function *g_functions_first;
 extern struct map_t *g_namespace_map;
 extern struct namespace *g_namespaces_first;
 extern int g_latest_stack, g_asciitable_defined, g_global_label_hint, g_parsing_function_body, g_resolve_stack_calculations;
-extern int g_is_file_isolated_counter;
+extern int g_is_file_isolated_counter, g_can_remember_converted_stack_items;
 
 int parse_string_length(char *end);
 
@@ -694,7 +694,7 @@ static int _parse_value_into_string(char e) {
 }
 
 
-#ifdef PROFILE_FUNCTIONS
+#if defined(PROFILE_FUNCTIONS)
 int _input_number(void) {
 #else
 int input_number(void) {
@@ -704,7 +704,7 @@ int input_number(void) {
   unsigned char e, ee, check_if_a_definition = YES, can_have_calculations = YES, use_substitution = NO;
   int k, p, q, spaces = 0, curly_braces = 0;
   double decimal_mul;
-#ifdef SPC700
+#if defined(SPC700)
   int dot = 0;
 #endif
 
@@ -788,7 +788,7 @@ int input_number(void) {
         
         /* launch stack calculator */
         p = stack_calculate(&g_buffer[g_source_index - 1], &g_parsed_int, &g_source_index, NO);
-
+        
         if (p == STACK_CALCULATE_DELAY)
           break;
         else if (p == STACK_RETURN_LABEL)
@@ -1385,7 +1385,7 @@ int input_number(void) {
       g_source_index--;
       break;
     }
-#ifdef SPC700
+#if defined(SPC700)
     else if (e == '.' && g_input_number_expects_dot == YES)
       dot = k;
 #endif
@@ -1423,14 +1423,14 @@ int input_number(void) {
       g_operand_hint_type = HINT_TYPE_GIVEN;
       k -= 2;
     }
-#ifdef SPC700
+#if defined(SPC700)
     else if (g_label[k-1] >= '0' && g_label[k-1] <= '7') {
       k -= 2;
       g_source_index -= 2;
     }
 #endif
   }
-#ifdef SPC700
+#if defined(SPC700)
   else if (dot > 0) {
     g_source_index -= k - dot;
     k -= k - dot;
@@ -2413,7 +2413,7 @@ static int _replace_labels_inside_stack_calculation(struct stack_item *stack_ite
 
 int parse_function(char *in, char *name, int *found_function, int *parsed_chars) {
 
-  int res, source_index_original = g_source_index, source_index_backup, i, j, input_float_mode;
+  int res, source_index_original = g_source_index, source_index_backup, i, j, input_float_mode, can_remember_converted_stack_items;
   struct function *fun = g_functions_first;
   struct stack_item *si;
   char c1 = name[0];
@@ -2565,6 +2565,8 @@ int parse_function(char *in, char *name, int *found_function, int *parsed_chars)
   g_source_index = source_index_original;
 
   /* try to parse the stack calculation */
+  can_remember_converted_stack_items = g_can_remember_converted_stack_items;
+  g_can_remember_converted_stack_items = NO;
   if (g_parsing_function_body == NO && resolve_stack(si, fun->stack->stacksize) == SUCCEEDED) {
     struct stack s;
     double dou;
@@ -2574,6 +2576,8 @@ int parse_function(char *in, char *name, int *found_function, int *parsed_chars)
     s.linenumber = fun->line_number;
     s.filename_id = fun->filename_id;
 
+    g_can_remember_converted_stack_items = can_remember_converted_stack_items;
+    
     if (compute_stack(&s, fun->stack->stacksize, &dou) == FAILED)
       return FAILED;
 
@@ -2585,6 +2589,8 @@ int parse_function(char *in, char *name, int *found_function, int *parsed_chars)
     return SUCCEEDED;
   }
 
+  g_can_remember_converted_stack_items = can_remember_converted_stack_items;
+  
   /* save the stack calculation */
   _save_stack_calculation(si, fun->stack->stacksize, -1, -1);
 
@@ -2592,7 +2598,7 @@ int parse_function(char *in, char *name, int *found_function, int *parsed_chars)
 }
 
 
-#ifdef PROFILE_FUNCTIONS
+#if defined(PROFILE_FUNCTIONS)
 int input_number(void) {
 
   int ret;

@@ -23,7 +23,7 @@
 #include "mersenne.h"
 
 
-#ifdef GB
+#if defined(GB)
 char g_licenseecodenew_c1, g_licenseecodenew_c2;
 int g_nintendologo_defined = 0;
 int g_computechecksum_defined = 0, g_computecomplementcheck_defined = 0;
@@ -35,7 +35,7 @@ int g_version = 0, g_version_defined = 0;
 static int s_gbheader_defined = 0;
 #endif
 
-#ifdef Z80
+#if defined(Z80)
 char *g_sdsctag_name_str = NULL, *g_sdsctag_notes_str = NULL, *g_sdsctag_author_str = NULL;
 int g_sdsctag_name_type, g_sdsctag_notes_type, g_sdsctag_author_type, g_sdsc_ma, g_sdsc_mi;
 int g_sdsctag_name_value, g_sdsctag_notes_value, g_sdsctag_author_value;
@@ -47,7 +47,7 @@ int g_smsforcechecksum = 0, g_smsforcechecksum_defined = 0, g_smschecksumsize = 
 static int s_smsreservedspace_defined = 0;
 #endif
 
-#ifdef MC68000
+#if defined(MC68000)
 char g_smdheader_systemtype[17] = "SEGA MEGA DRIVE ";
 char g_smdheader_copyright[17] = "                ";
 char g_smdheader_titledomestic[49] = "                                                ";
@@ -98,11 +98,12 @@ char g_name[32];
 int g_name_defined = 0;
 #endif
 
-#ifdef SPC700
+#if defined(SPC700)
 extern int g_input_number_expects_dot;
 #endif
 
 int g_sizeof_g_tmp = 4096, g_global_listfile_items = 0, *g_global_listfile_ints = NULL;
+int g_romheader_baseaddress = -1, g_romheader_baseaddress_defined = 0;
 char *g_tmp = NULL, *g_global_listfile_cmds = NULL;
 char *g_label_stack[256];
 char g_current_directive[MAX_NAME_LENGTH + 1];
@@ -132,7 +133,7 @@ struct namespace *g_namespaces_first = NULL;
 extern char *g_buffer, *unfolded_buffer, g_label[MAX_NAME_LENGTH + 1], *g_include_dir, *g_full_name;
 extern int g_source_file_size, g_input_number_error_msg, g_verbose_level, g_output_format, g_open_files, g_input_parse_if;
 extern int g_last_stack_id, g_latest_stack, g_ss, g_commandline_parsing, g_newline_beginning, g_expect_calculations, g_input_parse_special_chars;
-extern int g_extra_definitions, g_string_size, g_input_float_mode, g_operand_hint, g_operand_hint_type;
+extern int g_extra_definitions, g_string_size, g_input_float_mode, g_operand_hint, g_operand_hint_type, g_dsp_enable_label_address_conversion;
 extern int g_include_dir_size, g_parse_floats, g_listfile_data, g_quiet, g_parsed_double_decimal_numbers;
 extern int g_create_sizeof_definitions, g_input_allow_leading_hashtag, g_input_has_leading_hashtag, g_input_allow_leading_ampersand;
 extern int g_plus_and_minus_ends_label, g_get_next_token_use_substitution, g_input_number_turn_values_into_strings;
@@ -868,7 +869,11 @@ int phase_1(void) {
 
     q = evaluate_token();
 
-#ifdef SPC700
+    /* we can again try to turn labels into address values, this was turned off in evaluate_token()
+       when trying to parse instructions */
+    g_dsp_enable_label_address_conversion = YES;
+    
+#if defined(SPC700)
     /* instruction parser might set this to YES, inside evaluate_token() */
     g_input_number_expects_dot = NO;
 #endif
@@ -997,10 +1002,6 @@ int phase_1(void) {
       mrt->argument_data = NULL;
       mrt->incbin_data = NULL;
       mrt->definition_storage = NULL;
-
-      /* use the caller's namespace? */
-      if (m->use_caller_namespace == YES)
-        strcpy(m->namespace, g_active_file_info_last->namespace);
 
       /* skip '(' */
       if (g_buffer[g_source_index] == '(' && compare_and_skip_next_symbol('(') == SUCCEEDED)
@@ -4395,7 +4396,7 @@ int directive_incdir(void) {
   localize_path(g_include_dir);
 
   /* terminate the string with '/' */
-#ifdef MSDOS
+#if defined(MSDOS)
   if (g_include_dir[q - 1] != '\\') {
     g_include_dir[q] = '\\';
     g_include_dir[q + 1] = 0;
@@ -6200,7 +6201,7 @@ int directive_shift(void) {
 }
 
 
-#ifdef GB
+#if defined(GB)
 
 int directive_name_gb(void) {
 
@@ -6873,7 +6874,7 @@ int directive_background(void) {
 }
 
 
-#ifdef GB
+#if defined(GB)
 
 int directive_gbheader(void) {
 
@@ -7868,8 +7869,10 @@ int directive_define_def_equ(void) {
     skip_next_token();
 
   g_input_float_mode = ON;
+  g_dsp_enable_label_address_conversion = NO;
   q = get_new_definition_data(&j, k, &size, &dou, &export);
   g_input_float_mode = OFF;
+  g_dsp_enable_label_address_conversion = YES;
   if (q == FAILED)
     return FAILED;
 
@@ -8167,8 +8170,10 @@ int directive_redefine_redef(void) {
     skip_next_token();
 
   g_input_float_mode = ON;
+  g_dsp_enable_label_address_conversion = NO;
   q = get_new_definition_data(&j, k, &size, &dou, &export);
   g_input_float_mode = OFF;
+  g_dsp_enable_label_address_conversion = YES;
   if (q == FAILED)
     return FAILED;
 
@@ -8195,7 +8200,7 @@ int directive_redefine_redef(void) {
 }
 
 
-#ifdef Z80
+#if defined(Z80)
 
 int directive_smsheader(void) {
   
@@ -8385,6 +8390,24 @@ int directive_smsheader(void) {
       g_smsforcechecksum = g_parsed_int;
       g_smsforcechecksum_defined = 1;
     }
+    else if (strcaselesscmp(g_tmp, "BASEADDRESS") == 0) {
+      if (g_romheader_baseaddress_defined == 1) {
+        print_error(ERROR_DIR, "BASEADDRESS is already defined.\n");
+        return FAILED;
+      }
+      
+      q = input_number();
+
+      if (q == FAILED)
+        return FAILED;
+      if (q != SUCCEEDED) {
+        print_error(ERROR_DIR, "BASEADDRESS needs an immediate value.\n");
+        return FAILED;
+      }
+
+      g_romheader_baseaddress = g_parsed_int;
+      g_romheader_baseaddress_defined = 1;
+    }
     else {
       token_result = FAILED;
       break;
@@ -8553,7 +8576,7 @@ int directive_sdsctag(void) {
 #endif
 
 
-#ifdef MC68000
+#if defined(MC68000)
 
 static void _copy_and_pad_string(char *output, char *input, int size, char padding) {
 
@@ -8918,12 +8941,9 @@ int directive_macro(void) {
   if (g_is_file_isolated_counter > 0) {
     /* store the namespace so we'll later know in which namespace the .MACRO was defined in */
     strcpy(m->namespace, g_active_file_info_last->namespace);
-    m->use_caller_namespace = NO;
   }
-  else {
+  else
     m->namespace[0] = 0;
-    m->use_caller_namespace = YES;
-  }
 
   strcpy(m->defined_namespace, g_active_file_info_last->namespace);
 
@@ -8998,69 +9018,104 @@ int directive_macro(void) {
 }
 
 
-int directive_rept_repeat(void) {
+static int _find_next_endr(void) {
+
+  int r, m;
+
+  r = 1;
+  m = g_macro_active;
+
+  /* disable macro decoding */
+  g_macro_active = 0;
+
+  while (get_next_token() != FAILED) {
+    if (g_tmp[0] == '.') {
+      if (strcaselesscmp(g_current_directive, "ENDR") == 0) {
+        r--;
+        if (r == 0) {
+          g_macro_active = m;
+          return SUCCEEDED;
+        }
+      }
+      if (strcaselesscmp(g_current_directive, "E") == 0)
+        break;
+      if (strcaselesscmp(g_current_directive, "REPT") == 0 || strcaselesscmp(g_current_directive, "REPEAT") == 0 ||
+          strcaselesscmp(g_current_directive, "WHILE") == 0)
+        r++;
+    }
+  }
+
+  return FAILED;
+}
+
+
+int directive_rept_repeat_while(int is_while) {
   
   char c[16], index_name[MAX_NAME_LENGTH + 1];
-  int q;
+  int q, start;
 
   strcpy(c, g_current_directive);
 
-  q = input_number();
-  if (q == FAILED)
-    return FAILED;
-  if (q != SUCCEEDED) {
-    print_error(ERROR_INP, ".%s needs a count.\n", c);
-    return FAILED;
-  }
-
-  if (g_parsed_int < 0) {
-    print_error(ERROR_DIR, ".%s count value must be positive or zero.\n", c);
-    return FAILED;
-  }
-
   index_name[0] = 0;
-  if (compare_next_token("INDEX") == SUCCEEDED) {
-    skip_next_token();
 
-    if (input_next_string() != SUCCEEDED)
+  if (is_while == NO) {
+    q = input_number();
+    if (q == FAILED)
       return FAILED;
-
-    if (redefine(g_label, 0.0, NULL, DEFINITION_TYPE_VALUE, 0) == FAILED)
+    if (q != SUCCEEDED) {
+      print_error(ERROR_INP, ".%s needs a count.\n", c);
       return FAILED;
+    }
 
-    strcpy(index_name, g_label);
+    if (g_parsed_int < 0) {
+      print_error(ERROR_DIR, ".%s count value must be positive or zero.\n", c);
+      return FAILED;
+    }
+
+    if (compare_next_token("INDEX") == SUCCEEDED) {
+      skip_next_token();
+
+      if (input_next_string() != SUCCEEDED)
+        return FAILED;
+
+      if (redefine(g_label, 0.0, NULL, DEFINITION_TYPE_VALUE, 0) == FAILED)
+        return FAILED;
+
+      strcpy(index_name, g_label);
+    }
+
+    start = g_source_index;
   }
-    
+  else {
+    /* while */
+    start = g_source_index;
+
+    g_input_parse_if = YES;
+    q = input_number();
+    g_input_parse_if = NO;
+
+    if (q == FAILED)
+      return FAILED;
+    if (q != SUCCEEDED) {
+      print_error(ERROR_INP, ".%s needs a condition.\n", c);
+      return FAILED;
+    }
+  }
+
   if (g_parsed_int == 0) {
-    int l, r, m;
+    int l;
 
     l = g_active_file_info_last->line_current;
-    /* find the next compiling point */
-    r = 1;
-    m = g_macro_active;
-    /* disable macro decoding */
-    g_macro_active = 0;
-    while (get_next_token() != FAILED) {
-      if (g_tmp[0] == '.') {
-        if (strcaselesscmp(g_current_directive, "ENDR") == 0)
-          r--;
-        if (strcaselesscmp(g_current_directive, "E") == 0)
-          break;
-        if (strcaselesscmp(g_current_directive, "REPT") == 0 || strcaselesscmp(g_current_directive, "REPEAT") == 0)
-          r++;
-      }
-      if (r == 0) {
-        g_macro_active = m;
-        return SUCCEEDED;
-      }
-    }
+
+    if (_find_next_endr() == SUCCEEDED)
+      return SUCCEEDED;
     
     /* return the condition's line number */
     g_active_file_info_last->line_current = l;
     print_error(ERROR_DIR, ".%s must end to .ENDR.\n", c);
     return FAILED;
   }
-
+  
   if (s_repeat_active == s_repeat_stack_size) {
     struct repeat_runtime *rr;
 
@@ -9073,11 +9128,12 @@ int directive_rept_repeat(void) {
     g_repeat_stack = rr;
   }
 
-  g_repeat_stack[s_repeat_active].start = g_source_index;
+  g_repeat_stack[s_repeat_active].start = start;
   g_repeat_stack[s_repeat_active].counter = g_parsed_int;
   g_repeat_stack[s_repeat_active].repeats = 0;
   g_repeat_stack[s_repeat_active].start_line = g_active_file_info_last->line_current;
   g_repeat_stack[s_repeat_active].start_ifdef = g_ifdef;
+  g_repeat_stack[s_repeat_active].is_while = is_while;
   strcpy(g_repeat_stack[s_repeat_active].index_name, index_name);
 
   s_repeat_active++;
@@ -10299,10 +10355,10 @@ int directive_dwsin_dbsin_dwcos_dbcos(void) {
 }
 
 
-int directive_stringmap_table(void) {
+int directive_stringmaptable(void) {
 
   int parse_result, line_number = 0;
-  FILE* table_file;
+  FILE *table_file;
   char line_buffer[256];
   struct stringmaptable *map;
 
@@ -10343,30 +10399,29 @@ int directive_stringmap_table(void) {
 
   /* apply any include dir and convert the path to local enviroment */
   create_full_name(g_include_dir, g_label);
-  localize_path(g_label);
+  localize_path(g_full_name);
 
-  map->filename = _string_duplicate(g_label);
+  map->filename = _string_duplicate(g_full_name);
   if (map->filename == NULL) {
     print_error(ERROR_ERR, "STRINGMAPTABLE: Out of memory error.\n");
     return FAILED;
   }
 
-  table_file = fopen(g_label, "r");
+  table_file = fopen(map->filename, "r");
   if (table_file == NULL) {
     if (g_makefile_rules == YES) {
       /* if in makefile mode, this is not an error, we just make an empty map */
       return SUCCEEDED;
     }
-    print_error(ERROR_DIR, "Error opening file \"%s\".\n", g_label);
+    print_error(ERROR_DIR, "Error opening file \"%s\".\n", map->filename);
     return FAILED;
   }
 
   while (fgets(line_buffer, 256, table_file)) {
-    char* p = line_buffer, *equals_pos;
+    char *p = line_buffer, *equals_pos;
     struct stringmap_entry* entry;
-    int char_count;
-    unsigned char* bytes_writer;
-    int accumulator = 0;
+    unsigned char *bytes_writer;
+    int accumulator = 0, char_count;
 
     line_number++;
 
@@ -10393,7 +10448,7 @@ int directive_stringmap_table(void) {
     /* left of = should be a string of hex digits, for a variable whole number of bytes */
     char_count = (int)(equals_pos - p);
     if (char_count == 0) {
-      print_error(ERROR_DIR, "STRINGMAPTABLE: No text before '=' at line %d of file \"%s\".\n", line_number, g_label);
+      print_error(ERROR_DIR, "STRINGMAPTABLE: No text before '=' at line %d of file \"%s\".\n", line_number, map->filename);
       return FAILED;
     }
     entry->bytes_length = char_count / 2 + char_count % 2;
@@ -10403,9 +10458,11 @@ int directive_stringmap_table(void) {
       return FAILED;
     }
     bytes_writer = entry->bytes;
+
     for (; p != equals_pos; ++p) {
       /* parse character as hex */
       const char c = *p;
+      
       if (c >= '0' && c <= '9')
         accumulator |= c - '0';
       else if (c >= 'a' && c <= 'f')
@@ -10413,9 +10470,10 @@ int directive_stringmap_table(void) {
       else if (c >= 'A' && c <= 'F')
         accumulator |= c - 'A' + 10;
       else {
-        print_error(ERROR_DIR, "STRINGMAPTABLE: Invalid hex character '%c' at line %d of file \"%s\".\n", c, line_number, g_label);
+        print_error(ERROR_DIR, "STRINGMAPTABLE: Invalid hex character '%c' at line %d of file \"%s\".\n", c, line_number, map->filename);
         return FAILED;
       }
+
       /* emit to buffer or shift depending on position */
       if ((equals_pos - p) % 2 == 0) {
         /* even count -> shift */
@@ -10427,11 +10485,16 @@ int directive_stringmap_table(void) {
         accumulator = 0;
       }
     }
+
     /* then the string. we want to remove any trailing CRLF. */
     p[strcspn(p, "\r\n")] = 0;
+
+    /* process special characters like "\n" */
+    process_string_for_special_characters(equals_pos + 1, NULL);
+
     entry->text_length = (int)strlen(++p);
     if (entry->text_length == 0) {
-      print_error(ERROR_DIR, "STRINGMAPTABLE: no text after '=' at line %d of file \"%s\".\n", line_number, g_label);
+      print_error(ERROR_DIR, "STRINGMAPTABLE: no text after '=' at line %d of file \"%s\".\n", line_number, map->filename);
       return FAILED;
     }
     p = equals_pos + 1;
@@ -10473,14 +10536,14 @@ int directive_stringmap(void) {
     }
   }
   if (table == NULL) {
-    print_error(ERROR_DIR, "STRINGMAP: could not find table called \"%s\".\n", g_label);
+    print_error(ERROR_DIR, "STRINGMAP: Could not find table called \"%s\".\n", g_label);
     return FAILED;    
   }
 
   /* parse the string */
   parse_result = input_number();
   if (parse_result != INPUT_NUMBER_STRING) {
-    print_error(ERROR_DIR, "STRINGMAP: no string given");
+    print_error(ERROR_DIR, "STRINGMAP: No string given.\n");
     return FAILED;    
   }
 
@@ -10507,7 +10570,7 @@ int directive_stringmap(void) {
         /* in makefile mode, it's ignored */
         return SUCCEEDED;
       }
-      print_error(ERROR_DIR, "STRINGMAP: could not find a match in the table at substring \"%s\".\n", p);
+      print_error(ERROR_DIR, "STRINGMAP: Could not find a match in the table at substring \"%s\".\n", p);
       return FAILED;    
     }
     /* else emit */
@@ -10638,18 +10701,57 @@ int directive_endr_continue(void) {
 
   rr = &g_repeat_stack[s_repeat_active - 1];
 
-  rr->counter--;
-  if (rr->counter == 0) {
-    s_repeat_active--;
-          
-    /* repeat end */
-    fprintf(g_file_out_ptr, "J ");
+  if (rr->is_while == YES) {
+    int q;
+    
+    /* re-evaluate the condition for .WHILE */
+    g_source_index = rr->start;
+    g_active_file_info_last->line_current = rr->start_line;
+    g_ifdef = rr->start_ifdef;
 
-    if (strlen(rr->index_name) > 0) {
-      if (undefine(rr->index_name) == FAILED)
-        return FAILED;
+    g_input_parse_if = YES;
+    q = input_number();
+    g_input_parse_if = NO;
+
+    if (q == FAILED)
+      return FAILED;
+    if (q != SUCCEEDED) {
+      print_error(ERROR_INP, ".WHILE needs a condition.\n");
+      return FAILED;
     }
-    return SUCCEEDED;
+
+    if (g_parsed_int == 0) {
+      int l;
+
+      s_repeat_active--;
+      l = g_active_file_info_last->line_current;
+
+      /* repeat end */
+      fprintf(g_file_out_ptr, "J ");
+      
+      if (_find_next_endr() == SUCCEEDED)
+        return SUCCEEDED;
+    
+      /* return the condition's line number */
+      g_active_file_info_last->line_current = l;
+      print_error(ERROR_DIR, ".WHILE must end to .ENDR.\n");
+      return FAILED;
+    }
+  }
+  else {
+    rr->counter--;
+    if (rr->counter == 0) {
+      s_repeat_active--;
+          
+      /* repeat end */
+      fprintf(g_file_out_ptr, "J ");
+
+      if (strlen(rr->index_name) > 0) {
+        if (undefine(rr->index_name) == FAILED)
+          return FAILED;
+      }
+      return SUCCEEDED;
+    }
   }
 
   rr->repeats++;
@@ -10657,11 +10759,13 @@ int directive_endr_continue(void) {
     if (redefine(rr->index_name, (double)rr->repeats, NULL, DEFINITION_TYPE_VALUE, 0) == FAILED)
       return FAILED;
   }
-    
-  g_source_index = rr->start;
-  g_active_file_info_last->line_current = rr->start_line;
-  g_ifdef = rr->start_ifdef;
 
+  if (rr->is_while == NO) {
+    g_source_index = rr->start;
+    g_active_file_info_last->line_current = rr->start_line;
+    g_ifdef = rr->start_ifdef;
+  }
+  
   return SUCCEEDED;
 }
 
@@ -10700,7 +10804,7 @@ int parse_directive(void) {
 
   case '2':
 
-#ifdef W65816
+#if defined(W65816)
     /* 24BIT */
     if (strcmp(directive_upper, "24BIT") == 0) {
       g_xbit_size = 24;
@@ -10724,7 +10828,7 @@ int parse_directive(void) {
     
   case 'A':
 
-#ifdef W65816
+#if defined(W65816)
     /* ACCU */
     if (strcmp(directive_upper, "ACCU") == 0) {
       q = input_number();
@@ -10857,7 +10961,7 @@ int parse_directive(void) {
 
   case 'C':
 
-#ifdef GB
+#if defined(GB)
     /* COMPUTECHECKSUM/COMPUTEGBCHECKSUM */
     if (strcmp(directive_upper, "COMPUTECHECKSUM") == 0 || strcmp(directive_upper, "COMPUTEGBCHECKSUM") == 0) {
       no_library_files(".COMPUTEGBCHECKSUM");
@@ -10953,7 +11057,7 @@ int parse_directive(void) {
     }
 #endif
 
-#ifdef MC68000
+#if defined(MC68000)
     /* COMPUTESMDCHECKSUM */
     if (strcmp(directive_upper, "COMPUTESMDCHECKSUM") == 0) {
       no_library_files(".COMPUTESMDCHECKSUM");
@@ -10964,7 +11068,7 @@ int parse_directive(void) {
     }
 #endif
     
-#ifdef Z80
+#if defined(Z80)
     /* COMPUTESMSCHECKSUM */
     if (strcmp(directive_upper, "COMPUTESMSCHECKSUM") == 0) {
       no_library_files(".COMPUTESMSCHECKSUM");
@@ -11150,7 +11254,7 @@ int parse_directive(void) {
       if (strcmp(directive_upper, "DWSIN") == 0 || strcmp(directive_upper, "DBSIN") == 0 || strcmp(directive_upper, "DWCOS") == 0 || strcmp(directive_upper, "DBCOS") == 0)
         return directive_dwsin_dbsin_dwcos_dbcos();
     
-#ifdef GB
+#if defined(GB)
       /* DESTINATIONCODE */
       if (strcmp(directive_upper, "DESTINATIONCODE") == 0) {
         no_library_files(".DESTINATIONCODE");
@@ -11528,7 +11632,7 @@ int parse_directive(void) {
 
   case 'G':
 
-#ifdef GB
+#if defined(GB)
     /* GBHEADER */
     if (strcmp(g_current_directive, "GBHEADER") == 0)
       return directive_gbheader();
@@ -11563,7 +11667,7 @@ int parse_directive(void) {
 
   case 'I':
 
-#ifdef W65816
+#if defined(W65816)
     /* INDEX */
     if (strcmp(directive_upper, "INDEX") == 0) {
       q = input_number();
@@ -11609,7 +11713,7 @@ int parse_directive(void) {
     if (strcmp(directive_upper, "LONG") == 0)
       return directive_dl_long_faraddr();
 
-#ifdef GB
+#if defined(GB)
     /* LICENSEECODENEW */
     if (strcmp(directive_upper, "LICENSEECODENEW") == 0) {
       int token_result;
@@ -11735,7 +11839,7 @@ int parse_directive(void) {
     }
 #endif
 
-#ifdef GB
+#if defined(GB)
     /* NINTENDOLOGO */
     if (strcmp(directive_upper, "NINTENDOLOGO") == 0) {
       no_library_files(".NINTENDOLOGO");
@@ -11802,7 +11906,7 @@ int parse_directive(void) {
 
     /* REPT/REPEAT */
     if (strcmp(directive_upper, "REPT") == 0 || strcmp(directive_upper, "REPEAT") == 0)
-      return directive_rept_repeat();
+      return directive_rept_repeat_while(NO);
 
     /* REDEFINE/REDEF */
     if (strcmp(directive_upper, "REDEFINE") == 0 || strcmp(directive_upper, "REDEF") == 0)
@@ -11824,7 +11928,7 @@ int parse_directive(void) {
     if (strcmp(directive_upper, "RAMSECTION") == 0)
       return directive_ramsection();
 
-#ifdef GB
+#if defined(GB)
     /* RAMSIZE */
     if (strcmp(directive_upper, "RAMSIZE") == 0) {
       no_library_files(".RAMSIZE");
@@ -11997,7 +12101,7 @@ int parse_directive(void) {
     
     /* STRINGMAPTABLE */
     if (strcmp(directive_upper, "STRINGMAPTABLE") == 0)
-      return directive_stringmap_table();
+      return directive_stringmaptable();
     
     /* STRINGMAP */
     if (strcmp(directive_upper, "STRINGMAP") == 0)
@@ -12027,7 +12131,7 @@ int parse_directive(void) {
       return SUCCEEDED;
     }
 
-#ifdef Z80
+#if defined(Z80)
     /* SMSTAG */
     if (strcmp(directive_upper, "SMSTAG") == 0) {
       no_library_files(".SMSTAG");
@@ -12116,7 +12220,7 @@ int parse_directive(void) {
 
   case 'V':
 
-#ifdef GB
+#if defined(GB)
     /* VERSION */
     if (strcmp(directive_upper, "VERSION") == 0) {
       no_library_files(".VERSION");
@@ -12148,6 +12252,10 @@ int parse_directive(void) {
     break;
     
   case 'W':
+
+    /* WHILE */
+    if (strcmp(directive_upper, "WHILE") == 0)
+      return directive_rept_repeat_while(YES);
 
     /* WORD? */
     if (strcmp(directive_upper, "WORD") == 0)

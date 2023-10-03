@@ -215,6 +215,7 @@ ALL  ``.UNDEF DEBUG``
 ALL  ``.UNDEFINE DEBUG``
 ALL  ``.UNION name``
 658  ``.WDC``
+ALL  ``.WHILE COUNTER > 0``
 ALL  ``.WORD 16000, 10, 255``
 === ================================================================
 
@@ -680,7 +681,7 @@ This is not a compulsory directive.
 ``.BREAK``
 ---------------
 
-Exits the active ``.REPEAT``.
+Exits the active ``.REPEAT`` or ``.WHILE``.
 
 This is not a compulsory directive.
 
@@ -776,7 +777,7 @@ This is not a compulsory directive.
 ``.CONTINUE``
 -------------
 
-Jumps to the beginning of an active ``.REPEAT``.
+Jumps to the beginning of an active ``.REPEAT`` or ``.WHILE``.
 
 This is not a compulsory directive.
 
@@ -1364,10 +1365,10 @@ one is required to terminate it.
 ``.ENDR``
 ---------
 
-Ends the repetition.
+Ends the ``.REPEAT`` or ``.WHILE``.
 
-This is not a compulsory directive, but when ``.REPEAT`` is used this one is
-required to terminate it.
+This is not a compulsory directive, but when ``.REPEAT`` or ``.WHILE`` is
+used this one is required to terminate it.
 
 
 ``.ENDSNES``
@@ -2074,7 +2075,7 @@ This is not a compulsory directive.
 ------------------------------------------
 
 Changes the current include root directory. Use this to specify main
-directory for the following ``.INCLUDE`` and ``.INCBIN`` directives.
+directory for the following ``.INCLUDE``, ``.INCBIN`` and ``.STRINGMAPTABLE`` directives.
 If you want to change to the current working directory (WLA also defaults
 to this), use::
 
@@ -2791,6 +2792,11 @@ It is also possible to merge two or more sections using ``APPENDTO``::
     label2    DB
     .ENDS
 
+NOTE! The ``APPENDTO`` ``.SECTION`` s are appended in the order the linker
+sorts them. So first ``PRIORITY`` is considered (0 by default, the bigger the
+value the more important it is) and then the size of the ``.SECTION`` is considered,
+bigger ``.SECTION`` s are more important than smaller.
+
 If you wist to skip some bytes without giving them labels, use ``.`` as
 a label::
 
@@ -3229,7 +3235,7 @@ Before the sections are inserted into the output file, they are sorted by
 priorities, so that the section with the highest priority is processed first.
 If priorities are the same, then the size of the section matters, and bigger
 sections are processed before smaller ones. The default ``PRIORITY``, when not
-explicitly given, is 0.
+explicitly given, is 0. Note that ``PRIORITY`` accepts negative values as well.
 
 You can use ``AUTOPRIORITY`` instead of ``PRIORITY`` when you want to assign
 descending priority to sections. Using this you can make it so that e.g.,
@@ -3413,6 +3419,7 @@ it will be calculated automatically::
         CHECKSUMSIZE 32*1024  ; Uses the first this-many bytes in checksum
                               ;   calculations (excluding header area)
         FORCECHECKSUM $1234   ; Forces the checksum to be this value
+        BASEADDRESS $1FF0     ; Write the header at this address
     .ENDSMS
 
 The ``REGIONCODE`` also defines the system:
@@ -3553,8 +3560,14 @@ This is not a compulsory directive.
 ``.STRINGMAP script "Hello\n"``
 -------------------------------
 
-``.ASC`` is an alias for ``.DB``, but if you use ``.ASC`` it will remap
-the characters using the mapping given via ``.ASCIITABLE``.
+After you've given the ``.STRINGMAPTABLE``, use ``.STRINGMAP`` to define bytes 
+using the mapping in ``.STRINGMAPTABLE``. For example::
+
+    .STRINGMAP script, "いうえA\n"
+
+``.STRINGMAP`` with ``.STRINGMAPTABLE`` is an alternative way of mapping characters
+to ``.ASC`` and ``.ASCIITABLE``. Also note that here the result and the source of
+the mapping can be more than just one byte.
 
 This is not a compulsory directive.
 
@@ -3844,6 +3857,19 @@ are the same as::
 
 in WLA's own syntax. Beware of the situations where you use '<' and '>' to
 get the low and high bytes!
+
+This is not a compulsory directive.
+
+
+``.WHILE COUNTER > 0``
+----------------------
+
+Repeats the text enclosed between ``.WHILE <CONDITION>`` and ``.ENDR``::
+
+    .WHILE COUNTER > 0
+    .DB COUNTER
+    .REDEFINE COUNTER = COUNTER - 1
+    .ENDR
 
 This is not a compulsory directive.
 

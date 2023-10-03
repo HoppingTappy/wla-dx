@@ -19,7 +19,7 @@
 #include "mersenne.h"
 
 
-extern int g_input_number_error_msg, g_bankheader_status, g_input_float_mode, g_global_label_hint;
+extern int g_input_number_error_msg, g_bankheader_status, g_input_float_mode, g_global_label_hint, g_is_data_stream_parser_enabled;
 extern int g_source_index, g_source_file_size, g_parsed_int, g_macro_active, g_string_size, g_section_status, g_parse_floats;
 extern char *g_buffer, *g_tmp, g_expanded_macro_string[256], g_label[MAX_NAME_LENGTH + 1];
 extern struct map_t *g_defines_map;
@@ -32,15 +32,22 @@ extern double g_parsed_double;
 extern unsigned char g_asciitable[256];
 extern int g_operand_hint, g_operand_hint_type, g_can_calculate_a_minus_b, g_expect_calculations, g_asciitable_defined;
 extern int g_is_file_isolated_counter, g_force_add_namespace;
+extern struct slot g_slots[256];
+extern struct section_def *g_sections_first;
 
 int g_latest_stack = 0, g_last_stack_id = 0, g_resolve_stack_calculations = YES, s_stack_calculations_max = 0;
-int g_parsing_function_body = NO, g_fail_quetly_on_non_found_functions = NO, g_input_parse_if = NO;
+int g_parsing_function_body = NO, g_fail_quetly_on_non_found_functions = NO, g_input_parse_if = NO, g_dsp_enable_label_address_conversion = YES;
+int g_can_remember_converted_stack_items = YES;
 
 static int s_delta_counter = 0, s_delta_section = -1, s_dsp_file_name_id = 0, s_dsp_line_number = 0;
+static int s_converted_stack_items_count = 0;
 static struct stack_item *s_delta_old_pointer = NULL;
 static struct stack **s_stack_calculations = NULL;
+static struct stack_item *s_converted_stack_items[64];
+static struct stack_item *s_converted_stack_items_backups = NULL;
 
 static int _resolve_string(struct stack_item *s, int *cannot_resolve);
+
 
 PROFILE_GLOBALS_EXTERN();
 
@@ -164,6 +171,9 @@ void free_stack_calculations(void) {
   g_latest_stack = 0;
   g_last_stack_id = 0;
   s_stack_calculations_max = 0;
+
+  free(s_converted_stack_items_backups);
+  s_converted_stack_items_backups = NULL;
 }
 
 
@@ -329,7 +339,7 @@ static int _break_before_value_or_string(int i, struct stack_item *si) {
   return FAILED;
 }
 
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
 static void _debug_print_stack(int line_number, int stack_id, struct stack_item *ta, int count, int id, struct stack *stack) {
 
   int k;
@@ -392,6 +402,8 @@ static void _debug_print_stack(int line_number, int stack_id, struct stack_item 
     
     if (ta[k].can_calculate_deltas == YES)
       printf("@");
+    else if (ta[k].can_calculate_deltas == NOT_APPLICABLE)
+      printf("*");
     
     if (ta[k].type == STACK_ITEM_TYPE_OPERATOR) {
       int value = (int)ta[k].value;
@@ -588,6 +600,75 @@ static int _get_op_priority(int op) {
   fprintf(stderr, "_get_op_priority(): No priority for OP %d! Please submit a bug report\n", op);
 
   return 0;
+}
+
+
+static void _return_converted_stack_items(void) {
+
+  struct stack_item *b, *s;
+  int i;
+
+  for (i = 0; i < s_converted_stack_items_count; i++) {
+    b = &s_converted_stack_items_backups[i];
+    s = s_converted_stack_items[i];
+
+    /*
+    fprintf(stderr, "RETURN %s: %d %f\n", s->string, s->type, s->value);
+    */
+
+    s->type = b->type;
+    s->sign = b->sign;
+    s->can_calculate_deltas = b->can_calculate_deltas;
+    s->has_been_replaced = b->has_been_replaced;
+    s->is_in_postfix = b->is_in_postfix;
+    s->value = b->value;
+    strcpy(s->string, b->string);
+
+    /*
+    fprintf(stderr, "   NOW %s: %d %f\n", s->string, s->type, s->value);
+    */
+  }
+
+  s_converted_stack_items_count = 0;
+}
+
+
+static int _remember_converted_stack_item(struct stack_item *s) {
+
+  struct stack_item *b;
+
+  if (g_can_remember_converted_stack_items == NO)
+    return SUCCEEDED;
+  
+  if (s_converted_stack_items_count >= 64) {
+    fprintf(stderr, "_REMEMBER_CONVERTED_STACK_ITEM: Out of space! Please submit a bug report!\n");
+    return FAILED;
+  }
+
+  if (s_converted_stack_items_backups == NULL) {
+    s_converted_stack_items_backups = calloc(sizeof(struct stack_item) * 64, 1);
+    if (s_converted_stack_items_backups == NULL) {
+      print_error(ERROR_ERR, "Out of memory error while allocating s_converted_stack_items_backups.\n");
+      return FAILED;
+    }
+  }
+  
+  /*
+  fprintf(stderr, "REMEMBER %s: %d %f\n", s->string, s->type, s->value);
+  */
+
+  b = &s_converted_stack_items_backups[s_converted_stack_items_count];
+  
+  s_converted_stack_items[s_converted_stack_items_count++] = s;
+  b->type = s->type;
+  b->sign = s->sign;
+  b->can_calculate_deltas = s->can_calculate_deltas;
+  b->has_been_replaced = s->has_been_replaced;
+  b->is_in_postfix = s->is_in_postfix;
+  b->value = s->value;
+  strcpy(b->string, s->string);
+  
+  return SUCCEEDED;
 }
 
 
@@ -1062,6 +1143,7 @@ static int _parse_function_math1_base(char **in, struct stack_item *si, int *q, 
   }
   else if (type == INPUT_NUMBER_ADDRESS_LABEL) {
     si[*q].type = STACK_ITEM_TYPE_LABEL;
+    si[*q].can_calculate_deltas = NOT_APPLICABLE;
     strcpy(si[*q].string, string);
   }
   else if (type == INPUT_NUMBER_STACK) {
@@ -1101,6 +1183,7 @@ static int _parse_function_math2_base(char **in, struct stack_item *si, int *q, 
   }
   else if (type_a == INPUT_NUMBER_ADDRESS_LABEL) {
     si[*q].type = STACK_ITEM_TYPE_LABEL;
+    si[*q].can_calculate_deltas = NOT_APPLICABLE;
     strcpy(si[*q].string, string_a);
   }
   else if (type_a == INPUT_NUMBER_STACK) {
@@ -1117,6 +1200,7 @@ static int _parse_function_math2_base(char **in, struct stack_item *si, int *q, 
   }
   else if (type_b == INPUT_NUMBER_ADDRESS_LABEL) {
     si[*q].type = STACK_ITEM_TYPE_LABEL;
+    si[*q].can_calculate_deltas = NOT_APPLICABLE;
     strcpy(si[*q].string, string_b);
   }
   else if (type_b == INPUT_NUMBER_STACK) {
@@ -1156,6 +1240,7 @@ static int _parse_function_math3_base(char **in, struct stack_item *si, int *q, 
   }
   else if (type_a == INPUT_NUMBER_ADDRESS_LABEL) {
     si[*q].type = STACK_ITEM_TYPE_LABEL;
+    si[*q].can_calculate_deltas = NOT_APPLICABLE;
     strcpy(si[*q].string, string_a);
   }
   else if (type_a == INPUT_NUMBER_STACK) {
@@ -1172,6 +1257,7 @@ static int _parse_function_math3_base(char **in, struct stack_item *si, int *q, 
   }
   else if (type_b == INPUT_NUMBER_ADDRESS_LABEL) {
     si[*q].type = STACK_ITEM_TYPE_LABEL;
+    si[*q].can_calculate_deltas = NOT_APPLICABLE;
     strcpy(si[*q].string, string_b);
   }
   else if (type_b == INPUT_NUMBER_STACK) {
@@ -1188,6 +1274,7 @@ static int _parse_function_math3_base(char **in, struct stack_item *si, int *q, 
   }
   else if (type_c == INPUT_NUMBER_ADDRESS_LABEL) {
     si[*q].type = STACK_ITEM_TYPE_LABEL;
+    si[*q].can_calculate_deltas = NOT_APPLICABLE;
     strcpy(si[*q].string, string_c);
   }
   else if (type_c == INPUT_NUMBER_STACK) {
@@ -2013,14 +2100,22 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
           break;
         }
         else if (k == 8 && strcaselesscmpn(si[q].string, "bankbyte(", 9) == 0) {
+          int enable_label_address_conversion = g_dsp_enable_label_address_conversion;
+          
+          g_dsp_enable_label_address_conversion = NO;
           if (_parse_function_math1_base(&in, si, &q, "bankbyte(a)", SI_OP_BANK_BYTE) == FAILED)
             return FAILED;
+          g_dsp_enable_label_address_conversion = enable_label_address_conversion;
           is_already_processed_function = YES;
           break;
         }
         else if (k == 4 && strcaselesscmpn(si[q].string, "bank(", 5) == 0) {
+          int enable_label_address_conversion = g_dsp_enable_label_address_conversion;
+          
+          g_dsp_enable_label_address_conversion = NO;
           if (_parse_function_math1_base(&in, si, &q, "bank(a)", SI_OP_BANK) == FAILED)
             return FAILED;
+          g_dsp_enable_label_address_conversion = enable_label_address_conversion;
           is_already_processed_function = YES;
           break;
         }
@@ -2238,12 +2333,12 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
     }
   }
 
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
   fprintf(stderr, "PREOPT:\n");
   _debug_print_stack(g_active_file_info_last->line_current, -1, si, q, 0, NULL);
 #endif
   
-#ifdef SPC700
+#if defined(SPC700)
   /* check if the computation is of the form "y+X" or "y+Y" and remove that "+X" or "+Y" */
   if (q > 2 && si[q - 2].type == STACK_ITEM_TYPE_OPERATOR && si[q - 2].value == SI_OP_ADD) {
     if (si[q - 1].type == STACK_ITEM_TYPE_LABEL && si[q - 1].string[1] == 0) {
@@ -2370,7 +2465,7 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
         si[k + 1].value != SI_OP_SIGN &&
         si[k + 1].value != SI_OP_SQRT) {
       if (si[k].value != SI_OP_LEFT && si[k].value != SI_OP_RIGHT && si[k + 1].value != SI_OP_LEFT && si[k + 1].value != SI_OP_RIGHT) {
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
         fprintf(stderr, "ERROR NEAR COMPUTATION ITEM %d! (items %d and %d)\n", k, (int)si[k].value, (int)si[k+1].value);
         _debug_print_stack(g_active_file_info_last->line_current, -1, si, q, 0, NULL);
 #endif
@@ -2441,8 +2536,8 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
     for (k = 0; k < q; k++) {
       if (si[k].is_in_postfix == YES)
         continue;
-      if (si[k].type == STACK_ITEM_TYPE_LABEL) {
-        if (k+2 < q && si[k+1].type == STACK_ITEM_TYPE_OPERATOR && si[k+1].value == SI_OP_SUB && si[k+2].type == STACK_ITEM_TYPE_LABEL) {
+      if (si[k].type == STACK_ITEM_TYPE_LABEL && si[k].can_calculate_deltas != NOT_APPLICABLE) {
+        if (k+2 < q && si[k+1].type == STACK_ITEM_TYPE_OPERATOR && si[k+1].value == SI_OP_SUB && si[k+2].type == STACK_ITEM_TYPE_LABEL && si[k+2].can_calculate_deltas != NOT_APPLICABLE) {
           /* yes! mark such labels! */
           si[k].can_calculate_deltas = YES;
           si[k+2].can_calculate_deltas = YES;
@@ -2452,7 +2547,7 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
     }
   }
 
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
   fprintf(stderr, "INFIX:\n");
   _debug_print_stack(g_active_file_info_last->line_current, -1, si, q, 0, NULL);
 #endif
@@ -2461,9 +2556,9 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
   for (b = 0, k = 0, d = 0; k < q; k++) {
     struct stack_item *out = &ta[d], *in = &si[k];
     int type = si[k].type;
-    
+
     out->can_calculate_deltas = in->can_calculate_deltas;
-    out->is_in_postfix = NO;
+    out->is_in_postfix = YES;
     out->has_been_replaced = in->has_been_replaced;
 
     /* postfix sections are copied 1:1 */
@@ -2551,7 +2646,7 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
     d++;
   }
 
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
   fprintf(stderr, "POSTFIX:\n");
   _debug_print_stack(g_active_file_info_last->line_current, -1, ta, d, 0, NULL);
 #endif
@@ -2559,7 +2654,7 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
   /* are all the symbols known? */
   if ((g_resolve_stack_calculations == YES || from_substitutor == YES) && resolve_stack(ta, d) == SUCCEEDED) {
     struct stack s;
-
+    
     /* sanity check */
     if (s_delta_counter != 0) {
       print_error(ERROR_STC, "s_delta_counter == %d != 0! Internal error. Please submit a bug report!\n", s_delta_counter);
@@ -2571,19 +2666,26 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
     s.linenumber = g_active_file_info_last->line_current;
     s.filename_id = g_active_file_info_last->filename_id;
 
-    if (compute_stack(&s, d, &dou) == FAILED)
+    if (compute_stack(&s, d, &dou) == FAILED) {
+      /* return converted stack items to their original values */
+      _return_converted_stack_items();
+      
       return FAILED;
-    
+    }
+
     g_parsed_double = dou;
 
+    /* return converted stack items to their original values */
+    _return_converted_stack_items();
+    
     if (g_input_float_mode == ON) {
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
       fprintf(stderr, "RETURN FLOAT %f\n", dou);
 #endif
       return INPUT_NUMBER_FLOAT;
     }
 
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
     fprintf(stderr, "RETURN INT %d\n", (int)dou);
 #endif
     
@@ -2592,11 +2694,14 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
     return SUCCEEDED;
   }
 
+  /* return converted stack items to their original values */
+  _return_converted_stack_items();
+
   /* only one string? */
   if (d == 1 && ta[0].type == STACK_ITEM_TYPE_STRING && ta[0].sign == SI_SIGN_POSITIVE) {
     strcpy(g_label, ta[0].string);
     process_special_labels(g_label);
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
     fprintf(stderr, "RETURN STRING %s\n", g_label);
 #endif
     return STACK_RETURN_STRING;
@@ -2605,7 +2710,7 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
   if (d == 1 && ta[0].type == STACK_ITEM_TYPE_LABEL && ta[0].sign == SI_SIGN_POSITIVE) {
     strcpy(g_label, ta[0].string);
     process_special_labels(g_label);
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
     fprintf(stderr, "RETURN LABEL %s\n", g_label);
 #endif
     return STACK_RETURN_LABEL;
@@ -2671,13 +2776,13 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
     }
   }
 
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
   _debug_print_stack(stack->linenumber, g_last_stack_id, stack->stack_items, d, 0, stack);
 #endif
 
   calculation_stack_insert(stack);
 
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
     fprintf(stderr, "RETURN STACK %d\n", g_latest_stack);
     _debug_print_stack(g_active_file_info_last->line_current, g_latest_stack, ta, d, 0, NULL);
 #endif
@@ -2795,6 +2900,9 @@ static struct data_stream_item *_data_stream_parser_find_label(char *label, int 
 
   char mangled_label[MAX_NAME_LENGTH+1];
   struct data_stream_item *dSI;
+
+  if (s_dsp_labels_map == NULL)
+    return NULL;
 
   strcpy(mangled_label, label);
   
@@ -2932,6 +3040,51 @@ static int _resolve_string(struct stack_item *s, int *cannot_resolve) {
         *cannot_resolve = 1;
 
         _remove_can_calculate_deltas_pair(s);
+      }
+    }
+    else if (g_dsp_enable_label_address_conversion == YES) {
+      struct data_stream_item *dSI = NULL;
+
+      /* read the labels and their addresses from the internal data stream */
+      data_stream_parser_parse();
+
+      if (s->type == STACK_ITEM_TYPE_LABEL)
+        dSI = _data_stream_parser_find_label(s->string, s_dsp_file_name_id, s_dsp_line_number);
+
+      if (dSI != NULL) {
+        if (dSI->section_id < 0) {
+          /* a label outside .SECTIONs */
+
+          if (_remember_converted_stack_item(s) == FAILED)
+            return FAILED;
+          
+          s->type = STACK_ITEM_TYPE_VALUE;
+          s->value = g_slots[dSI->slot].address + dSI->address;
+          /*
+          fprintf(stderr, "1: %s -> %d\n", s->string, (int)s->value);
+          */
+        }
+        else {
+          /* a label inside a .SECTION - is the .SECTION of type FORCE/OVERWRITE? */
+          struct section_def *section = g_sections_first;
+          
+          while (section != NULL) {
+            if (section->id == dSI->section_id)
+              break;
+            section = section->next;
+          }
+
+          if (section != NULL && (section->status == SECTION_STATUS_FORCE || section->status == SECTION_STATUS_OVERWRITE)) {
+            if (_remember_converted_stack_item(s) == FAILED)
+              return FAILED;
+            
+            s->type = STACK_ITEM_TYPE_VALUE;
+            s->value = g_slots[section->slot].address + dSI->address;
+            /*
+            fprintf(stderr, "2: %s -> %d\n", s->string, (int)s->value);
+            */
+          }
+        }
       }
     }
   }
@@ -3094,6 +3247,9 @@ static int _try_to_calculate(struct stack_item *st) {
     return FAILED;
 
   if (s->has_been_calculated == YES) {
+    if (_remember_converted_stack_item(st) == FAILED)
+      return FAILED;
+
     st->type = STACK_ITEM_TYPE_VALUE;
     st->value = s->value;
 
@@ -3107,15 +3263,15 @@ static int _try_to_calculate(struct stack_item *st) {
       return FAILED;
 
     if (s->is_single_instance == YES) {
-      free(s->stack_items);
-      s->stack_items = NULL;
-      s->stacksize = 0;
       s->has_been_calculated = YES;
       s->value = dou;
 
       /* HACK: don't export this calculation in phase_4.c */
       s->is_function_body = YES;
     }
+
+    if (_remember_converted_stack_item(st) == FAILED)
+      return FAILED;
 
     st->type = STACK_ITEM_TYPE_VALUE;
     st->value = dou;
@@ -3129,10 +3285,22 @@ static int _try_to_calculate(struct stack_item *st) {
 
 int resolve_stack(struct stack_item s[], int stack_item_count) {
 
-  int backup = stack_item_count, cannot_resolve = 0, is_condition = NO;
+  int backup = stack_item_count, cannot_resolve = 0, is_condition = NO, enable_label_address_conversion = g_dsp_enable_label_address_conversion;
   struct stack_item *st;
 
+  /* exits for bank and bankbyte */
   st = s;
+  while (stack_item_count > 0) {
+    if (st->type == STACK_ITEM_TYPE_OPERATOR && st->value == SI_OP_BANK)
+      g_dsp_enable_label_address_conversion = NO;
+    else if (st->type == STACK_ITEM_TYPE_OPERATOR && st->value == SI_OP_BANK_BYTE)
+      g_dsp_enable_label_address_conversion = NO;
+    stack_item_count--;
+    st++;
+  }
+
+  st = s;
+  stack_item_count = backup;
   while (stack_item_count > 0) {
     int process_single = YES;
 
@@ -3149,8 +3317,10 @@ int resolve_stack(struct stack_item s[], int stack_item_count) {
         if (st->type == STACK_ITEM_TYPE_LABEL) {
           int cannot;
 
-          if (_process_string(st, &cannot) == FAILED)
+          if (_process_string(st, &cannot) == FAILED) {
+            g_dsp_enable_label_address_conversion = enable_label_address_conversion;
             return FAILED;
+          }
         }
         
         st++;
@@ -3159,8 +3329,10 @@ int resolve_stack(struct stack_item s[], int stack_item_count) {
         if (st->type == STACK_ITEM_TYPE_LABEL) {
           int cannot;
 
-          if (_process_string(st, &cannot) == FAILED)
+          if (_process_string(st, &cannot) == FAILED) {
+            g_dsp_enable_label_address_conversion = enable_label_address_conversion;
             return FAILED;
+          }
         }
 
         st += 2;
@@ -3176,16 +3348,20 @@ int resolve_stack(struct stack_item s[], int stack_item_count) {
 
     if (process_single == YES) {
       if (st->type == STACK_ITEM_TYPE_LABEL) {
-        if (_process_string(st, &cannot_resolve) == FAILED)
+        if (_process_string(st, &cannot_resolve) == FAILED) {
+          g_dsp_enable_label_address_conversion = enable_label_address_conversion;
           return FAILED;
+        }
       }
       st++;
       stack_item_count--;
     }
   }
 
-  if (cannot_resolve != 0)
+  if (cannot_resolve != 0) {
+    g_dsp_enable_label_address_conversion = enable_label_address_conversion;
     return FAILED;
+  }
 
   /* find a stack that cannot be calculated and turned into a value here, or bank and fail */
   st = s;
@@ -3204,16 +3380,20 @@ int resolve_stack(struct stack_item s[], int stack_item_count) {
         stack_item_count += 2;
 
         if (st->type == STACK_ITEM_TYPE_STACK) {
-          if (_try_to_calculate(st) == FAILED)
+          if (_try_to_calculate(st) == FAILED) {
+            g_dsp_enable_label_address_conversion = enable_label_address_conversion;
             return FAILED;
+          }
         }
 
         st++;
         stack_item_count--;
 
         if (st->type == STACK_ITEM_TYPE_STACK) {
-          if (_try_to_calculate(st) == FAILED)
+          if (_try_to_calculate(st) == FAILED) {
+            g_dsp_enable_label_address_conversion = enable_label_address_conversion;
             return FAILED;
+          }
         }
         
         st += 2;
@@ -3229,11 +3409,15 @@ int resolve_stack(struct stack_item s[], int stack_item_count) {
 
     if (process_single == YES) {
       if (st->type == STACK_ITEM_TYPE_STACK) {
-        if (_try_to_calculate(st) == FAILED)
+        if (_try_to_calculate(st) == FAILED) {
+          g_dsp_enable_label_address_conversion = enable_label_address_conversion;
           return FAILED;
+        }
       }
-      if (st->type == STACK_ITEM_TYPE_LABEL || (st->type == STACK_ITEM_TYPE_OPERATOR && st->value == SI_OP_BANK))
+      if (st->type == STACK_ITEM_TYPE_LABEL || (st->type == STACK_ITEM_TYPE_OPERATOR && st->value == SI_OP_BANK)) {
+        g_dsp_enable_label_address_conversion = enable_label_address_conversion;
         return FAILED;
+      }
       stack_item_count--;
       st++;
     }
@@ -3243,29 +3427,45 @@ int resolve_stack(struct stack_item s[], int stack_item_count) {
   if (_is_stack_condition(s, backup) == YES)
     is_condition = YES;
 
-  /* exits for label, stack and bank */
+  /* exits for label (inside a .SECTION) and stack */
   st = s;
   stack_item_count = backup;
   while (stack_item_count > 0) {
-    if (st->type == STACK_ITEM_TYPE_LABEL) {
-      if (g_macro_active != 0) {
-        if (is_macro_arg_type_label(st->string) == NO)
-          return FAILED;
-      }
-      else
-        return FAILED;
+    if (st->type == STACK_ITEM_TYPE_STACK) {
+      g_dsp_enable_label_address_conversion = enable_label_address_conversion;
+      return FAILED;
     }
-    if (st->type == STACK_ITEM_TYPE_STACK)
-      return FAILED;
-    else if ((st->type == STACK_ITEM_TYPE_OPERATOR && st->value == SI_OP_BANK))
-      return FAILED;
+    else if (st->type == STACK_ITEM_TYPE_LABEL) {
+      if (_process_string(st, &cannot_resolve) == SUCCEEDED) {
+        if (cannot_resolve == 1) {
+          g_dsp_enable_label_address_conversion = enable_label_address_conversion;
+          return FAILED;
+        }
+      }
+      else {
+        g_dsp_enable_label_address_conversion = enable_label_address_conversion;
+        return FAILED;
+      }
+      if (g_macro_active != 0) {
+        if (is_macro_arg_type_label(st->string) == NO) {
+          g_dsp_enable_label_address_conversion = enable_label_address_conversion;
+          return FAILED;
+        }
+      }
+      else {
+        g_dsp_enable_label_address_conversion = enable_label_address_conversion;
+        return FAILED;
+      }
+    }
     stack_item_count--;
     st++;
   }
 
+  g_dsp_enable_label_address_conversion = enable_label_address_conversion;
+  
   /* if this is not a condition then NOT will delay the processing to WLALINK */
   if (is_condition == YES || g_input_parse_if == YES) {
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
     fprintf(stderr, "RESOLVED (1):\n");
     _debug_print_stack(0, 0, s, backup, 0, NULL);
 #endif
@@ -3283,7 +3483,7 @@ int resolve_stack(struct stack_item s[], int stack_item_count) {
     st++;
   }
 
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
   fprintf(stderr, "RESOLVED (2):\n");
   _debug_print_stack(0, 0, s, backup, 0, NULL);
 #endif
@@ -3350,7 +3550,7 @@ int compute_stack(struct stack *sta, int stack_item_count, double *result) {
 
   s = sta->stack_items;
 
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
   fprintf(stderr, "SOLVING:\n");
   _debug_print_stack(0, 0, s, stack_item_count, 0, NULL);
 #endif
@@ -3392,28 +3592,28 @@ int compute_stack(struct stack *sta, int stack_item_count, double *result) {
         break;
       case SI_OP_LOW_BYTE:
         z = (int)v[t - 1];
-		v[t - 1] = _perform_and(z, 0xFF);
+        v[t - 1] = _perform_and(z, 0xFF);
         if (s->sign == SI_SIGN_NEGATIVE)
           v[t - 1] = -v[t - 1];
         sp[t - 1] = NULL;
         break;
       case SI_OP_HIGH_BYTE:
         z = ((int)v[t - 1]) >> 8;
-		v[t - 1] = _perform_and(z, 0xFF);
+        v[t - 1] = _perform_and(z, 0xFF);
         if (s->sign == SI_SIGN_NEGATIVE)
           v[t - 1] = -v[t - 1];
         sp[t - 1] = NULL;
         break;
       case SI_OP_BANK_BYTE:
         z = ((int)v[t - 1]) >> 16;
-		v[t - 1] = _perform_and(z, 0xFF);
+        v[t - 1] = _perform_and(z, 0xFF);
         if (s->sign == SI_SIGN_NEGATIVE)
           v[t - 1] = -v[t - 1];
         sp[t - 1] = NULL;
         break;
-     case SI_OP_LOW_WORD:
+      case SI_OP_LOW_WORD:
         z = (int)v[t - 1];
-		v[t - 1] = _perform_and(z, 0xFFFF);
+        v[t - 1] = _perform_and(z, 0xFFFF);
         if (s->sign == SI_SIGN_NEGATIVE)
           v[t - 1] = -v[t - 1];
         sp[t - 1] = NULL;
@@ -3804,7 +4004,7 @@ int compute_stack(struct stack *sta, int stack_item_count, double *result) {
   }
 
   /*
-    #ifdef W65816
+    #if defined(W65816)
     if (v[0] < -8388608 || v[0] > 16777215) {
     print_error(ERROR_STC, "Out of 24-bit range.\n");
     return FAILED;
@@ -3819,7 +4019,7 @@ int compute_stack(struct stack *sta, int stack_item_count, double *result) {
 
   *result = v[0];
 
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
   fprintf(stderr, "RESULT = %f\n", *result);
 #endif
   
@@ -3857,7 +4057,7 @@ int stack_create_label_stack(char *label) {
 
   calculation_stack_insert(stack);
 
-#ifdef WLA_DEBUG
+#if defined(WLA_DEBUG)
   _debug_print_stack(stack->linenumber, g_last_stack_id, stack->stack_items, 1, 1, stack);
 #endif
 
@@ -4031,7 +4231,7 @@ int stack_add_offset_plus_n_to_stack(int id, int n) {
   si->can_calculate_deltas = NO;
   si->has_been_replaced = NO;
   si->is_in_postfix = YES;
-
+  
 #if WLA_DEBUG
   _debug_print_stack(stack->linenumber, id, stack->stack_items, stack->stacksize, -1, stack);
 #endif
@@ -4103,7 +4303,7 @@ extern FILE *g_file_out_ptr;
    where it left off previous call */
 static int s_dsp_last_data_stream_position = 0, s_dsp_has_data_stream_parser_been_initialized = NO;
 static int s_dsp_add = 0, s_dsp_add_old = 0, s_dsp_section_id = -1, s_dsp_bits_current = 0, s_dsp_inz;
-static int s_dstruct_start, s_dstruct_item_offset, s_dstruct_item_size;
+static int s_dstruct_start, s_dstruct_item_offset, s_dstruct_item_size, s_dsp_bank = 0, s_dsp_slot = 0;
 static struct section_def *s_dsp_s = NULL;
 static struct data_stream_item *s_data_stream_items_first = NULL, *s_data_stream_items_last = NULL;
 
@@ -4142,7 +4342,11 @@ int data_stream_parser_free(void) {
 
 int data_stream_parser_parse(void) {
 
+  int err;
   char c;
+
+  if (g_is_data_stream_parser_enabled == NO)
+    return SUCCEEDED;
   
   if (g_file_out_ptr == NULL) {
     print_error(ERROR_STC, "The internal data stream is closed! It should be open. Please submit a bug report!\n");
@@ -4179,10 +4383,14 @@ int data_stream_parser_parse(void) {
       continue;
 
     case 'i':
-      fscanf(g_file_out_ptr, "%*d %*s ");
+      err = fscanf(g_file_out_ptr, "%*d %*s ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       continue;
     case 'I':
-      fscanf(g_file_out_ptr, "%*d %*s ");
+      err = fscanf(g_file_out_ptr, "%*d %*s ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       continue;
 
     case 'P':
@@ -4194,10 +4402,16 @@ int data_stream_parser_parse(void) {
 
     case 'A':
     case 'S':
-      if (c == 'A')
-        fscanf(g_file_out_ptr, "%d %*d", &s_dsp_section_id);
-      else
-        fscanf(g_file_out_ptr, "%d ", &s_dsp_section_id);
+      if (c == 'A') {
+        err = fscanf(g_file_out_ptr, "%d %*d", &s_dsp_section_id);
+        if (err < 1)
+          return print_fscanf_error_accessing_internal_data_stream();
+      }
+      else {
+        err = fscanf(g_file_out_ptr, "%d ", &s_dsp_section_id);
+        if (err < 1)
+          return print_fscanf_error_accessing_internal_data_stream();
+      }
 
       s_dsp_add_old = s_dsp_add;
 
@@ -4239,83 +4453,113 @@ int data_stream_parser_parse(void) {
 
     case 'x':
     case 'o':
-      fscanf(g_file_out_ptr, "%d %*d ", &s_dsp_inz);
+      err = fscanf(g_file_out_ptr, "%d %*d ", &s_dsp_inz);
+      if (err < 1)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add += s_dsp_inz;
       continue;
 
     case 'X':
-      fscanf(g_file_out_ptr, "%d %*d ", &s_dsp_inz);
+      err = fscanf(g_file_out_ptr, "%d %*d ", &s_dsp_inz);
+      if (err < 1)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add += s_dsp_inz * 2;
       continue;
 
     case 'h':
-      fscanf(g_file_out_ptr, "%d %*d ", &s_dsp_inz);
+      err = fscanf(g_file_out_ptr, "%d %*d ", &s_dsp_inz);
+      if (err < 1)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add += s_dsp_inz * 3;
       continue;
 
     case 'w':
-      fscanf(g_file_out_ptr, "%d %*d ", &s_dsp_inz);
+      err = fscanf(g_file_out_ptr, "%d %*d ", &s_dsp_inz);
+      if (err < 1)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add += s_dsp_inz * 4;
       continue;
 
     case 'z':
     case 'q':
-      fscanf(g_file_out_ptr, "%*s ");
+      err = fscanf(g_file_out_ptr, "%*s ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add += 3;
       continue;
 
     case 'T':
-      fscanf(g_file_out_ptr, "%*d ");
+      err = fscanf(g_file_out_ptr, "%*d ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add += 3;
       continue;
 
     case 'u':
     case 'V':
-      fscanf(g_file_out_ptr, "%*s ");
+      err = fscanf(g_file_out_ptr, "%*s ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add += 4;
       continue;
 
     case 'U':
-      fscanf(g_file_out_ptr, "%*d ");
+      err = fscanf(g_file_out_ptr, "%*d ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add += 4;
       continue;
 
     case 'v':
-      fscanf(g_file_out_ptr, "%*d ");
+      err = fscanf(g_file_out_ptr, "%*d ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       continue;
         
     case 'b':
-      fscanf(g_file_out_ptr, "%*d ");
+      err = fscanf(g_file_out_ptr, "%*d ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       continue;
 
     case 'R':
     case 'Q':
     case 'd':
     case 'c':
-      fscanf(g_file_out_ptr, "%*s ");
+      err = fscanf(g_file_out_ptr, "%*s ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add++;
       continue;
 
     case 'M':
     case 'r':
-      fscanf(g_file_out_ptr, "%*s ");
+      err = fscanf(g_file_out_ptr, "%*s ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add += 2;
       continue;
 
     case 'y':
     case 'C':
-      fscanf(g_file_out_ptr, "%*d ");
+      err = fscanf(g_file_out_ptr, "%*d ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add += 2;
       continue;
 
-#ifdef SUPERFX
+#if defined(SUPERFX)
     case '*':
-      fscanf(g_file_out_ptr, "%*s ");
+      err = fscanf(g_file_out_ptr, "%*s ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add++;
       continue;
       
     case '-':
-      fscanf(g_file_out_ptr, "%*d ");
+      err = fscanf(g_file_out_ptr, "%*d ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add++;
       continue;
 #endif
@@ -4325,8 +4569,10 @@ int data_stream_parser_parse(void) {
         int bits_to_add;
         char type;
           
-        fscanf(g_file_out_ptr, "%d ", &bits_to_add);
-
+        err = fscanf(g_file_out_ptr, "%d ", &bits_to_add);
+        if (err < 1)
+          return print_fscanf_error_accessing_internal_data_stream();
+      
         if (bits_to_add == 999) {
           s_dsp_bits_current = 0;
 
@@ -4344,56 +4590,85 @@ int data_stream_parser_parse(void) {
             s_dsp_bits_current = 0;
         }
 
-        fscanf(g_file_out_ptr, "%c", &type);
-
-        if (type == 'a')
-          fscanf(g_file_out_ptr, "%*d");
-        else if (type == 'b')
-          fscanf(g_file_out_ptr, "%*s");
-        else if (type == 'c')
-          fscanf(g_file_out_ptr, "%*d");
+        err = fscanf(g_file_out_ptr, "%c", &type);
+        if (err < 1)
+          return print_fscanf_error_accessing_internal_data_stream();
+        
+        if (type == 'a') {
+          err = fscanf(g_file_out_ptr, "%*d");
+          if (err < 0)
+            return print_fscanf_error_accessing_internal_data_stream();
+        }
+        else if (type == 'b') {
+          err = fscanf(g_file_out_ptr, "%*s");
+          if (err < 0)
+            return print_fscanf_error_accessing_internal_data_stream();
+        }
+        else if (type == 'c') {
+          err = fscanf(g_file_out_ptr, "%*d");
+          if (err < 0)
+            return print_fscanf_error_accessing_internal_data_stream();
+        }
 
         continue;
       }
 
-#ifdef SPC700
+#if defined(SPC700)
     case 'n':
-      fscanf(g_file_out_ptr, "%*d %*s ");
+      err = fscanf(g_file_out_ptr, "%*d %*s ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add += 2;
       continue;
 
     case 'N':
-      fscanf(g_file_out_ptr, "%*d %*d ");
+      err = fscanf(g_file_out_ptr, "%*d %*d ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add += 2;
       continue;
 #endif
 
     case 'D':
-      fscanf(g_file_out_ptr, "%*d %*d %*d %d ", &s_dsp_inz);
+      err = fscanf(g_file_out_ptr, "%*d %*d %*d %d ", &s_dsp_inz);
+      if (err < 1)
+        return print_fscanf_error_accessing_internal_data_stream();
       s_dsp_add += s_dsp_inz;
       continue;
 
     case 'O':
-      fscanf(g_file_out_ptr, "%d ", &s_dsp_add);
+      err = fscanf(g_file_out_ptr, "%d ", &s_dsp_add);
+      if (err < 1)
+        return print_fscanf_error_accessing_internal_data_stream();
       continue;
 
     case 'B':
-      fscanf(g_file_out_ptr, "%*d %*d ");
+      err = fscanf(g_file_out_ptr, "%d %d ", &s_dsp_bank, &s_dsp_slot);
+      if (err < 2)
+        return print_fscanf_error_accessing_internal_data_stream();
       continue;
 
     case 'g':
-      fscanf(g_file_out_ptr, "%*d ");
+      err = fscanf(g_file_out_ptr, "%*d ");
+      if (err < 0)
+        return print_fscanf_error_accessing_internal_data_stream();
       continue;
 
     case 'G':
       continue;
 
     case 't':
-      fscanf(g_file_out_ptr, "%d ", &s_dsp_inz);
+      err = fscanf(g_file_out_ptr, "%d ", &s_dsp_inz);
+      if (err < 1)
+        return print_fscanf_error_accessing_internal_data_stream();
+
       if (s_dsp_inz == 0)
         g_namespace[0] = 0;
-      else
-        fscanf(g_file_out_ptr, STRING_READ_FORMAT, g_namespace);
+      else {
+        err = fscanf(g_file_out_ptr, STRING_READ_FORMAT, g_namespace);
+        if (err < 1)
+          return print_fscanf_error_accessing_internal_data_stream();
+      }
       continue;
 
     case 'Z': /* breakpoint */
@@ -4401,22 +4676,27 @@ int data_stream_parser_parse(void) {
     case 'L': /* label */
       if (c == 'Z') {
       }
-      else if (c == 'Y')
-        fscanf(g_file_out_ptr, "%*s ");
+      else if (c == 'Y') {
+        err = fscanf(g_file_out_ptr, "%*s ");
+        if (err < 0)
+          return print_fscanf_error_accessing_internal_data_stream();
+      }
       else {
         struct data_stream_item *dSI;
         int mangled_label = NO;
-
-        dSI = calloc(sizeof(struct data_stream_item), 1);
+	
+	dSI = calloc(sizeof(struct data_stream_item), 1);
         if (dSI == NULL) {
           print_error(ERROR_ERR, "Out of memory error while allocating a data_stream_item.\n");
           return FAILED;
         }
 
-        fscanf(g_file_out_ptr, "%s ", dSI->label);
-
-        if (is_label_anonymous(dSI->label) == YES) {
-          /* we skip anonymous labels here, too much trouble */
+        err = fscanf(g_file_out_ptr, "%s ", dSI->label);
+        if (err < 1)
+          return print_fscanf_error_accessing_internal_data_stream();
+        
+        if (is_label_anonymous(dSI->label) == YES || dSI->label[0] == '_') {
+          /* we skip anonymous and local labels here, too much trouble */
           free(dSI);
         }
         else {
@@ -4453,6 +4733,8 @@ int data_stream_parser_parse(void) {
           dSI->next = NULL;
           dSI->address = s_dsp_add;
           dSI->section_id = s_dsp_section_id;
+          dSI->bank = s_dsp_bank;
+          dSI->slot = s_dsp_slot;
 
           /* store the entry in a hashmap for quick discovery */
           if (hashmap_put(s_dsp_labels_map, dSI->label, dSI) == MAP_OMEM) {
@@ -4475,18 +4757,25 @@ int data_stream_parser_parse(void) {
       continue;
 
     case 'f':
-      fscanf(g_file_out_ptr, "%d ", &s_dsp_file_name_id);
+      err = fscanf(g_file_out_ptr, "%d ", &s_dsp_file_name_id);
+      if (err < 1)
+        return print_fscanf_error_accessing_internal_data_stream();
       continue;
 
     case 'k':
-      fscanf(g_file_out_ptr, "%d ", &s_dsp_line_number);
+      err = fscanf(g_file_out_ptr, "%d ", &s_dsp_line_number);
+      if (err < 1)
+        return print_fscanf_error_accessing_internal_data_stream();
       continue;
 
     case 'e':
       {
         int x, y;
         
-        fscanf(g_file_out_ptr, "%d %d ", &x, &y);
+        err = fscanf(g_file_out_ptr, "%d %d ", &x, &y);
+        if (err < 2)
+          return print_fscanf_error_accessing_internal_data_stream();
+
         if (y == -1) {
           /* mark start of .DSTRUCT */
           s_dstruct_start = s_dsp_add;

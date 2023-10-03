@@ -11,7 +11,7 @@
 #include "files.h"
 #include "analyze.h"
 
-#ifdef AMIGA
+#if defined(AMIGA)
 #include "/crc32.h"
 #include "/printf.h"
 #else
@@ -50,7 +50,6 @@ extern int g_use_priority_only_writing_sections, g_use_priority_only_writing_ram
 extern int g_allow_duplicate_labels_and_definitions;
 
 static int s_current_stack_calculation_addr = 0;
-
 
 
 static int _sections_sort(const void *a, const void *b) {
@@ -1900,12 +1899,32 @@ static int _handle_special_case(int special_id, int file_id, int file_id_source,
       return FAILED;
     }
   }
+  else if (special_id == 4) {
+    /* endianess flipping is handled elsewhere */
+  }
   else {
     fprintf(stderr, "_HANDLE_SPECIAL_CASE: Unknown special case ID %d! This in an internal WLA error. Please submit a bug report!\n", special_id);
     return FAILED;
   }
 
   return SUCCEEDED;
+}
+
+
+static int _flip_endianess(int value, int bits) {
+
+  if (bits == 16) {
+    int top, bottom;
+
+    top = (value >> 8) & 0xFF;
+    bottom = value & 0xFF;
+
+    return (bottom << 8) | top;
+  }
+  else {
+    fprintf(stderr, "_FLIP_ENDIANESS: Only 16-bit values can be flipped at the moment!\n");
+    return value;
+  }
 }
 
 
@@ -1990,6 +2009,12 @@ int fix_references(void) {
 
       /* direct 16-bit */
       if (r->type == REFERENCE_TYPE_DIRECT_16BIT || r->type == REFERENCE_TYPE_RELATIVE_16BIT) {
+        /* special case ID handling! */
+        if (r->special_id == 4) {
+          /* flip endianess */
+          i = _flip_endianess(i, 16);
+        }
+
         if (get_file(r->file_id)->little_endian == YES) {
           mem_insert_ref(x, i & 0xFF);
           mem_insert_ref(x + 1, (i >> 8) & 0xFF);
@@ -2092,6 +2117,13 @@ int fix_references(void) {
       /* direct 16-bit */
       if (r->type == REFERENCE_TYPE_DIRECT_16BIT) {
         i = (int)l->address;
+
+        /* special case ID handling! */
+        if (r->special_id == 4) {
+          /* flip endianess */
+          i = _flip_endianess(i, 16);
+        }
+
         if (get_file(r->file_id)->little_endian == YES) {
           mem_insert_ref(x, i & 0xFF);
           mem_insert_ref(x + 1, (i >> 8) & 0xFF);
@@ -2193,6 +2225,7 @@ int fix_references(void) {
                   get_file_name(r->file_id), get_source_file_name(r->file_id, r->file_id_source), r->linenumber, i, r->address, (int)l->address, l->name);
           return FAILED;
         }
+
         if (get_file(r->file_id)->little_endian == YES) {
           mem_insert_ref(x, i & 0xFF);
           mem_insert_ref(x + 1, (i >> 8) & 0xFF);
@@ -2228,7 +2261,7 @@ int fix_references(void) {
         }
 
         /* special case ID handling! */
-        if (r->special_id > 0) {
+        if (r->special_id > 0 && r->special_id != 4) {
           if (_handle_special_case(r->special_id, r->file_id, r->file_id_source, r->linenumber, i, &i) == FAILED)
             return FAILED;
         }
@@ -2270,7 +2303,7 @@ int write_symbol_file(char *outname, int mode, int output_addr_to_line) {
   struct label *l;
   char name[256], list_cmd, *outfile_tmp;
   FILE *f, *outfile;
-  int list_cmd_idx, list_source_file, list_address_offset, y, outfile_size;
+  int list_cmd_idx, list_source_file, list_address_offset, y, outfile_size, got_sections = NO, got_ramsections = NO;
   unsigned long outfile_crc;
   unsigned int name_len;
 
@@ -2346,7 +2379,7 @@ int write_symbol_file(char *outname, int mode, int output_addr_to_line) {
 
     /* info section */
     fprintf(f, "\n[information]\n");
-    fprintf(f, "version 2\n");
+    fprintf(f, "version 3\n");
     
     /* labels */
     l = g_labels_first;
@@ -2478,6 +2511,42 @@ int write_symbol_file(char *outname, int mode, int output_addr_to_line) {
       }
     }
 
+    /* sections */
+    s = g_sec_first;
+    while (s != NULL) {
+      if (s->is_bankheader_section == NO && s->alive == YES) {
+        if (s->status == SECTION_STATUS_FORCE || s->status == SECTION_STATUS_SEMISUPERFREE ||
+            s->status == SECTION_STATUS_SEMISUBFREE || s->status == SECTION_STATUS_SEMIFREE ||
+            s->status == SECTION_STATUS_FREE || s->status == SECTION_STATUS_SUPERFREE ||
+            s->status == SECTION_STATUS_OVERWRITE) {
+          if (got_sections == NO) {
+            fprintf(f, "\n[sections]\n");
+            got_sections = YES;
+          }
+          
+          fprintf(f, "%.8x %.2x:%.4x %.4x %.8x %s\n", s->output_address, s->bank + s->base, s->address, g_slots[s->slot].address + s->address, s->size, s->name);
+        }
+      }
+      s = s->next;
+    }
+
+    /* ramsections */
+    s = g_sec_first;
+    while (s != NULL) {
+      if (s->is_bankheader_section == NO && s->alive == YES) {
+        if (s->status == SECTION_STATUS_RAM_FORCE || s->status == SECTION_STATUS_RAM_SEMIFREE ||
+            s->status == SECTION_STATUS_RAM_SEMISUBFREE || s->status == SECTION_STATUS_RAM_FREE) {
+          if (got_ramsections == NO) {
+            fprintf(f, "\n[ramsections]\n");
+            got_ramsections = YES;
+          }
+          
+          fprintf(f, "%.2x:%.4x %.4x %.8x %s\n", s->bank + s->base, s->address, g_slots[s->slot].address + s->address, s->size, s->name);
+        }
+      }
+      s = s->next;
+    }
+
     if (output_addr_to_line == ON) {
       /* file_id_source to source files */
       fprintf(f, "\n[source files v2]\n");
@@ -2539,7 +2608,6 @@ int write_symbol_file(char *outname, int mode, int output_addr_to_line) {
         }
         s = s->next;
       }
-
     }
   }
 
@@ -2853,6 +2921,13 @@ int compute_pending_calculations(void) {
                 get_file_name(sta->file_id), get_source_file_name(sta->file_id, sta->file_id_source), sta->linenumber, k, k);
         return FAILED;
       }
+
+      /* special case ID handling! */
+      if (sta->special_id == 4) {
+        /* flip endianess */
+        k = _flip_endianess(k, 16);
+      }
+      
       if (get_file(sta->file_id)->little_endian == YES) {
         if (mem_insert_ref(a, k & 0xFF) == FAILED)
           return FAILED;
@@ -4569,7 +4644,7 @@ static int _labels_sort(const void *a, const void *b) {
 }
 
 
-int sort_anonymous_labels() {
+int sort_anonymous_labels(void) {
 
   int j = 0;
   struct label *l;

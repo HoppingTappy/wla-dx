@@ -15,7 +15,7 @@
 #include "printf.h"
 
 
-#ifdef GB
+#if defined(GB)
 extern int g_licenseecodeold, g_romsize, g_romsize_defined;
 extern int g_nintendologo_defined;
 extern int g_name_defined, g_licenseecodeold_defined, g_licenseecodenew_defined;
@@ -33,7 +33,7 @@ static unsigned char s_nintendo_logo_dat[] = {
 };
 #endif
 
-#ifdef Z80
+#if defined(Z80)
 extern char *g_sdsctag_name_str, *g_sdsctag_notes_str, *g_sdsctag_author_str;
 extern int g_sdsctag_name_type, g_sdsctag_notes_type, g_sdsctag_author_type, g_sdsc_ma, g_sdsc_mi;
 extern int g_sdsctag_name_value, g_sdsctag_notes_value, g_sdsctag_author_value;
@@ -72,7 +72,7 @@ extern int g_computesmdchecksum_defined, g_smdheader_defined;
 #endif
 
 extern FILE *g_file_out_ptr;
-extern int g_rambanks, g_rambanks_defined, g_ifdef;
+extern int g_rambanks, g_rambanks_defined, g_ifdef, g_romheader_baseaddress, g_romheader_baseaddress_defined;
 extern int g_rombanks_defined, g_rombanks;
 extern int g_output_format, g_romgbc, g_romsgb, g_romdmg, g_max_address;
 extern int g_romtype, g_verbose_level, g_section_status, g_background_defined, g_memorymap_defined;
@@ -147,7 +147,7 @@ void _write_snes_cartridge_information(int start) {
 int phase_2(void) {
 
   if (g_ifdef > 0) {
-    fprintf(stderr, "%x x .ENDIFs are missing.\n", g_ifdef);
+    fprintf(stderr, "PHASE_2: %x x .ENDIFs are missing.\n", g_ifdef);
     return FAILED;
   }
 
@@ -155,16 +155,16 @@ int phase_2(void) {
     printf("Directive checks...\n");
 
   if (g_section_status == ON) {
-    fprintf(stderr, "%s The section \"%s\" was not closed.\n", s_include_directives_name, g_sections_last->name);
+    fprintf(stderr, "PHASE_2: %s The section \"%s\" was not closed.\n", s_include_directives_name, g_sections_last->name);
     return FAILED;
   }
 
   if (g_output_format != OUTPUT_LIBRARY && g_rombanks_defined == 0 && g_rombankmap_defined == 0) {
-    fprintf(stderr, "%s ROMBANKS/ROMBANKMAP wasn't defined.\n", s_include_directives_name);
+    fprintf(stderr, "PHASE_2: %s ROMBANKS/ROMBANKMAP wasn't defined.\n", s_include_directives_name);
     return FAILED;
   }
 
-#ifdef Z80
+#if defined(Z80)
   /* SMSTAG */
   if (g_smstag_defined != 0) {
     /* OBSOLETE: MOVED TO wlalink/compute.c/compute_sms_checksum()
@@ -207,6 +207,15 @@ int phase_2(void) {
 
     if (g_smsregioncode_defined != 0)
       rc = g_smsregioncode;
+
+    /* BASEADDRESS override */
+    if (g_romheader_baseaddress_defined != 0) {
+      if (g_romheader_baseaddress + 16 > g_max_address) {
+        fprintf(stderr, "PHASE_2: Baseaddress ($%x) for SMS ROM header is too large, it overflows from the ROM ($%x bytes)!\n", g_romheader_baseaddress, g_max_address);
+        return FAILED;
+      }
+      tag_address = g_romheader_baseaddress;
+    }
     
     /* create a what-we-are-doing message for mem_insert*() warnings/errors */
     snprintf(g_mem_insert_action, sizeof(g_mem_insert_action), "Writing SMS ROM header bytes");
@@ -458,7 +467,7 @@ int phase_2(void) {
   }
 #endif
 
-#ifdef GB
+#if defined(GB)
   /* insert the descriptive data (not in library files) */
   if (g_output_format == OUTPUT_OBJECT) {
     if (g_nintendologo_defined != 0) {
@@ -561,7 +570,7 @@ int phase_2(void) {
             romsize = 7;
           else /* if (b <= 512) */
             romsize = 8;
-          fprintf(stderr, "WARNING: The number of ROM banks (%d) is not officially supported. Setting ROM size indicator byte at $0148 to %X...\n", b, romsize);
+          fprintf(stderr, "PHASE_2: WARNING: The number of ROM banks (%d) is not officially supported. Setting ROM size indicator byte at $0148 to %X...\n", b, romsize);
         }
       }
       
