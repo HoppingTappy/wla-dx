@@ -414,6 +414,33 @@
 #endif
 
 /**************************************************************/
+/* K053248                                                      */
+/**************************************************************/
+
+#ifdef K053248
+
+/* instruction types */
+
+/* 0  - plain text  8b */
+/* 1  - x              */
+/* 2  - ?              */
+/* 3  - plain text 16b */
+/* 4  - x (absolute)   */
+/* 5  - 8-bit signed operand, relative address */
+/* 6  - 5-bit signed operand, absolute address + post op byte code */
+/* 7  - 8-bit signed operand, relative address + post op byte code */
+/* 8  - 16-bit operand + post op byte code */
+/* 9  - plain text 8-bit + post op byte code */
+/* 10 - exg / tfr */
+/* 11 - pshs / pshu / puls / pulu */
+
+#define INSTRUCTION_STRING_LENGTH_MAX 13
+#define ARCH_STR "K053248"
+#define WLA_NAME "K053248"
+
+#endif
+
+/**************************************************************/
 /* 8008                                                       */
 /**************************************************************/
 
@@ -505,13 +532,13 @@ struct instruction {
 #if defined(Z80) || defined(GB) || defined(I8008) || defined(I8080)
   unsigned char value;
 #endif
-#if defined(MCS6502) || defined(WDC65C02) || defined(CSG65CE02) || defined(HUC6280) || defined(MC6800) || defined(MC6801) || defined(MC6809)
+#if defined(MCS6502) || defined(WDC65C02) || defined(CSG65CE02) || defined(HUC6280) || defined(MC6800) || defined(MC6801) || defined(MC6809) || defined(K053248)
   unsigned char skip_8bit;
 #endif
 #if defined(W65816)
   unsigned char skip_xbit;
 #endif
-#if defined(MC6809)
+#if defined(MC6809) || defined(K053248)
   unsigned char addressing_mode_bits;
 #endif
 #if defined(SPC700)

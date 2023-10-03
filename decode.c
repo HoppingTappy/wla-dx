@@ -28,7 +28,7 @@ extern struct instruction g_instructions_table[];
 extern struct macro_runtime *g_macro_stack, *g_macro_runtime_current;
 extern struct active_file_info *g_active_file_info_first, *g_active_file_info_last, *g_active_file_info_tmp;
 
-#if defined(MCS6502) || defined(WDC65C02) || defined(CSG65CE02) || defined(W65816) || defined(HUC6280) || defined(MC6800) || defined(MC6801) || defined(MC6809)
+#if defined(MCS6502) || defined(WDC65C02) || defined(CSG65CE02) || defined(W65816) || defined(HUC6280) || defined(MC6800) || defined(MC6801) || defined(MC6809) || defined(K053248)
 extern int g_xbit_size, g_accu_size, g_index_size;
 #endif
 
@@ -71,7 +71,7 @@ static void _output_assembled_instruction(struct instruction *instruction, const
 }
 
 
-#if MC6809
+#if defined(MC6809) || defined(K053248)
 
 static char s_error_no_u[] = "Was expecting register X/Y/S/PC/A/B/CC/DP";
 static char s_error_no_s[] = "Was expecting register X/Y/U/PC/A/B/CC/DP";
@@ -6430,6 +6430,538 @@ int evaluate_token(void) {
       /*************************************************************************************************/
       /*************************************************************************************************/
       /* </6809> */
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+
+#endif
+      
+#ifdef K053248
+
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+      /* <k053248> */
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+
+    case 0:
+      /* plain text 8-bit */
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (IS_THE_MATCH_COMPLETE(x)) {
+          _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->hex);
+          g_source_index = s_parser_source_index;
+          return SUCCEEDED;
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+
+    case 5:
+    case 1:
+      /* 8-bit signed operand, relative address */
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (s_instruction_tmp->string[x] == 'x') {
+          y = g_source_index;
+          g_source_index = s_parser_source_index;
+          z = input_number();
+          s_parser_source_index = g_source_index;
+          g_source_index = y;
+
+          if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
+            return FAILED;
+          if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < -128)) {
+            print_error(ERROR_NUM, "Out of signed 8-bit range.\n");
+            return FAILED;
+          }
+
+          for (x++; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+            if (IS_THE_MATCH_COMPLETE(x)) {
+              _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+              _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->hex);
+        
+              if (z == SUCCEEDED)
+                _output_assembled_instruction(s_instruction_tmp, "d%d ", g_parsed_int);
+              else if (z == INPUT_NUMBER_ADDRESS_LABEL)
+                _output_assembled_instruction(s_instruction_tmp, "R%s ", g_label);
+              else {
+                _output_assembled_instruction(s_instruction_tmp, "c%d ", g_latest_stack);
+                if (s_instruction_tmp->type == 5) {
+                  /* 5 -> let's configure the stack so that all label references inside are relative */
+                  struct stack *stack = find_stack_calculation(g_latest_stack, YES);
+
+                  if (stack == NULL)
+                    return FAILED;
+    
+                  stack->relative_references = 1;
+                }
+              }
+        
+              g_source_index = s_parser_source_index;
+              return SUCCEEDED;
+            }
+            if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+              break;
+          }
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+
+    case 2:
+      /* 16-bit operand  + post op byte code */
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (s_instruction_tmp->string[x] == '?') {
+          y = g_source_index;
+          g_source_index = s_parser_source_index;
+          z = input_number();
+          s_parser_source_index = g_source_index;
+          g_source_index = y;
+          if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
+            return FAILED;
+          if (z == SUCCEEDED && (g_parsed_int > 65535 || g_parsed_int < -32768)) {
+            print_error(ERROR_NUM, "Out of 16-bit range.\n");
+            return FAILED;
+          }
+
+          for (x++; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+            if (IS_THE_MATCH_COMPLETE(x)) {
+              _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+              _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->hex);
+              _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->addressing_mode_bits);
+
+              if (z == SUCCEEDED)
+                _output_assembled_instruction(s_instruction_tmp, "y%d ", g_parsed_int);
+              else if (z == INPUT_NUMBER_ADDRESS_LABEL)
+                _output_assembled_instruction(s_instruction_tmp, "r%s ", g_label);
+              else
+                _output_assembled_instruction(s_instruction_tmp, "C%d ", g_latest_stack);
+
+              g_source_index = s_parser_source_index;
+              return SUCCEEDED;
+            }
+            if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+              break;
+          }
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+
+    case 3:
+      /* plain text 16-bit */
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (IS_THE_MATCH_COMPLETE(x)) {
+          _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex);
+          g_source_index = s_parser_source_index;
+          return SUCCEEDED;
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+
+    case 4:
+      /* 16-bit unsigned operand, absolute address  + post op byte code */
+      if (g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
+        break;
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (s_instruction_tmp->string[x] == 'x') {
+          y = g_source_index;
+          g_source_index = s_parser_source_index;
+          z = input_number();
+          s_parser_source_index = g_source_index;
+          g_source_index = y;
+    
+          if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
+            return FAILED;
+          if (g_operand_hint == HINT_16BIT)
+            break;
+          if (z == SUCCEEDED && (g_parsed_int > 65535 || g_parsed_int < -32768)) {
+            if (s_instruction_tmp->skip_8bit == 1)
+              break;
+            print_error(ERROR_NUM, "Out of 8-bit range.\n");
+            return FAILED;
+          }
+
+          for (x++; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+            if (IS_THE_MATCH_COMPLETE(x)) {
+              _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+              _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->hex);
+              _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->addressing_mode_bits);
+
+              if (z == SUCCEEDED)
+                _output_assembled_instruction(s_instruction_tmp, "d%d ", g_parsed_int);
+              else if (z == INPUT_NUMBER_ADDRESS_LABEL)
+                _output_assembled_instruction(s_instruction_tmp, "Q%s ", g_label);
+              else
+                _output_assembled_instruction(s_instruction_tmp, "c%d ", g_latest_stack);
+        
+              g_source_index = s_parser_source_index;
+              return SUCCEEDED;
+            }
+            if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+              break;
+          }
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+
+    case 6:
+      /* 5-bit signed operand, absolute address + post op byte code */
+      if (g_xbit_size >= 8 && s_instruction_tmp->skip_8bit == 1)
+        break;
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (s_instruction_tmp->string[x] == 's') {
+          y = g_source_index;
+          g_source_index = s_parser_source_index;
+          z = input_number();
+          s_parser_source_index = g_source_index;
+          g_source_index = y;
+
+          /* TODO: add a mechanism so that we could use 5-bit addreslabel references and calculations */
+          /* currently we just fall back to 8-bit/16-bit ones */
+          if (z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK)
+            break;
+          if (z != SUCCEEDED)
+            return FAILED;
+          if (g_operand_hint == HINT_8BIT || g_operand_hint == HINT_16BIT)
+            break;
+          if (g_parsed_int > 15 || g_parsed_int < -16)
+            break;
+
+          for (x++; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+            if (IS_THE_MATCH_COMPLETE(x)) {
+              _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+              _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->hex);
+
+              _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->addressing_mode_bits | (g_parsed_int & 0x1F));
+              g_source_index = s_parser_source_index;
+              return SUCCEEDED;
+            }
+            if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+              break;
+          }
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+
+    case 7:
+      /* 8-bit signed operand, relative address + post op byte code */
+      if (g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
+        break;
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (s_instruction_tmp->string[x] == 'x') {
+          y = g_source_index;
+          g_source_index = s_parser_source_index;
+          z = input_number();
+          s_parser_source_index = g_source_index;
+          g_source_index = y;
+
+          if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
+            return FAILED;
+          if (g_operand_hint == HINT_16BIT)
+            break;
+          if (z == SUCCEEDED && (g_parsed_int > 127 || g_parsed_int < -128)) {
+            if (s_instruction_tmp->skip_8bit == 1)
+              break;
+            print_error(ERROR_NUM, "Out of 8-bit range.\n");
+            return FAILED;
+          }
+
+          for (x++; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+            if (IS_THE_MATCH_COMPLETE(x)) {
+              _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+              _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->hex);
+                
+              if (z == SUCCEEDED)
+                _output_assembled_instruction(s_instruction_tmp, "d%d d%d ", s_instruction_tmp->addressing_mode_bits, g_parsed_int);
+              else if (z == INPUT_NUMBER_ADDRESS_LABEL)
+                _output_assembled_instruction(s_instruction_tmp, "d%d R%s ", s_instruction_tmp->addressing_mode_bits, g_label);
+              else {
+                struct stack *stack;
+          
+                _output_assembled_instruction(s_instruction_tmp, "d%d c%d ", s_instruction_tmp->addressing_mode_bits, g_latest_stack);
+
+                /* let's configure the stack so that all label references inside are relative */
+                stack = find_stack_calculation(g_latest_stack, YES);
+
+                if (stack == NULL)
+                  return FAILED;
+    
+                stack->relative_references = 1;
+              }
+        
+              g_source_index = s_parser_source_index;
+              return SUCCEEDED;
+            }
+            if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+              break;
+          }
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+
+    case 8:
+      /* 16-bit operand + post op byte code */
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (s_instruction_tmp->string[x] == '?') {
+          y = g_source_index;
+          g_source_index = s_parser_source_index;
+          z = input_number();
+          s_parser_source_index = g_source_index;
+          g_source_index = y;
+          if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
+            return FAILED;
+          if (z == SUCCEEDED && (g_parsed_int > 65535 || g_parsed_int < -32768)) {
+            print_error(ERROR_NUM, "Out of 16-bit range.\n");
+            return FAILED;
+          }
+
+          for (x++; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+            if (IS_THE_MATCH_COMPLETE(x)) {
+              _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+              _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->hex);
+
+              if (z == SUCCEEDED)
+                _output_assembled_instruction(s_instruction_tmp, "d%d y%d ", s_instruction_tmp->addressing_mode_bits, g_parsed_int);
+              else if (z == INPUT_NUMBER_ADDRESS_LABEL)
+                _output_assembled_instruction(s_instruction_tmp, "d%d r%s ", s_instruction_tmp->addressing_mode_bits, g_label);
+              else
+                _output_assembled_instruction(s_instruction_tmp, "d%d C%d ", s_instruction_tmp->addressing_mode_bits, g_latest_stack);
+
+              g_source_index = s_parser_source_index;
+              return SUCCEEDED;
+            }
+            if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+              break;
+          }
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+
+    case 9:
+      /* plain text 8-bit + post op byte code */
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (IS_THE_MATCH_COMPLETE(x)) {
+          _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+          _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->hex);
+
+          _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->addressing_mode_bits);
+          g_source_index = s_parser_source_index;
+          return SUCCEEDED;
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+
+    case 10:
+      /* EXG / TFR */
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (s_instruction_tmp->string[x] == 'r') {
+          g_parsed_int = _parse_exg_tfr_registers();
+          if (g_parsed_int < 0)
+            return FAILED;
+
+          _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+          _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->hex);
+          _output_assembled_instruction(s_instruction_tmp, "d%d ", g_parsed_int);
+        
+          g_source_index = s_parser_source_index;
+          return SUCCEEDED;
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+
+    case 11:
+      /* PSHS / PSHU / PULS / PULU */
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (s_instruction_tmp->string[x] == 'r') {
+          g_parsed_int = _parse_push_pull_registers(s_instruction_tmp->addressing_mode_bits);
+          if (g_parsed_int < 0)
+            return FAILED;
+
+          _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+          _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->hex);
+          _output_assembled_instruction(s_instruction_tmp, "d%d ", g_parsed_int);
+        
+          g_source_index = s_parser_source_index;
+          return SUCCEEDED;
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+
+    case 12:
+      /* 16-bit signed operand, relative address */
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (s_instruction_tmp->string[x] == '?') {
+          y = g_source_index;
+          g_source_index = s_parser_source_index;
+          z = input_number();
+          s_parser_source_index = g_source_index;
+          g_source_index = y;
+          if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
+            return FAILED;
+          if (z == SUCCEEDED && (g_parsed_int > 65535 || g_parsed_int < -32768)) {
+            print_error(ERROR_NUM, "Out of 16-bit range.\n");
+            return FAILED;
+          }
+
+          for (x++; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+            if (IS_THE_MATCH_COMPLETE(x)) {
+              _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+              _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->hex);
+        
+              if (z == SUCCEEDED)
+                _output_assembled_instruction(s_instruction_tmp, "y%d ", g_parsed_int);
+              else if (z == INPUT_NUMBER_ADDRESS_LABEL)
+                _output_assembled_instruction(s_instruction_tmp, "M%s ", g_label);
+              else {
+                struct stack *stack;
+          
+                _output_assembled_instruction(s_instruction_tmp, "C%d ", g_latest_stack);
+
+                /* let's configure the stack so that all label references inside are relative */
+                stack = find_stack_calculation(g_latest_stack, YES);
+
+                if (stack == NULL)
+                  return FAILED;
+    
+                stack->relative_references = 1;
+              }
+
+              g_source_index = s_parser_source_index;
+              return SUCCEEDED;
+            }
+            if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+              break;
+          }
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+
+    case 13:
+      /* 16-bit signed operand, relative address */
+      for (; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (s_instruction_tmp->string[x] == 'x') {
+          y = g_source_index;
+          g_source_index = s_parser_source_index;
+          z = input_number();
+          s_parser_source_index = g_source_index;
+          g_source_index = y;
+
+          if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
+            return FAILED;
+          if (z == SUCCEEDED && (g_parsed_int > 65535 || g_parsed_int < -32768)) {
+            print_error(ERROR_NUM, "Out of 16-bit range.\n");
+            return FAILED;
+          }
+
+          for (x++; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+            if (IS_THE_MATCH_COMPLETE(x)) {
+              _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+              _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->hex);
+
+              if (z == SUCCEEDED)
+                _output_assembled_instruction(s_instruction_tmp, "y%d ", g_parsed_int);
+              else if (z == INPUT_NUMBER_ADDRESS_LABEL)
+                _output_assembled_instruction(s_instruction_tmp, "M%s ", g_label);
+              else {
+                _output_assembled_instruction(s_instruction_tmp, "c%d ", g_latest_stack);
+                if (s_instruction_tmp->type == 5) {
+                  /* 5 -> let's configure the stack so that all label references inside are relative */
+                  struct stack *stack = find_stack_calculation(g_latest_stack, YES);
+
+                  if (stack == NULL)
+                    return FAILED;
+
+                  stack->relative_references = 1;
+                }
+              }
+
+              g_source_index = s_parser_source_index;
+              return SUCCEEDED;
+            }
+            if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+              break;
+          }
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+    case 14:
+      /* 8-bit unsigned operand, relative address */
+      for (; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (s_instruction_tmp->string[x] == 'x') {
+          y = g_source_index;
+          g_source_index = s_parser_source_index;
+          z = input_number();
+          s_parser_source_index = g_source_index;
+          g_source_index = y;
+
+          if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
+            return FAILED;
+          if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < 0)) {
+            print_error(ERROR_NUM, "Out of signed 8-bit range.\n");
+            return FAILED;
+          }
+
+          for (x++; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+            if (IS_THE_MATCH_COMPLETE(x)) {
+              _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+              _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->hex);
+
+              if (z == SUCCEEDED)
+                _output_assembled_instruction(s_instruction_tmp, "d%d ", g_parsed_int);
+              else if (z == INPUT_NUMBER_ADDRESS_LABEL)
+                _output_assembled_instruction(s_instruction_tmp, "R%s ", g_label);
+              else {
+                _output_assembled_instruction(s_instruction_tmp, "c%d ", g_latest_stack);
+                if (s_instruction_tmp->type == 5) {
+                  /* 5 -> let's configure the stack so that all label references inside are relative */
+                  struct stack *stack = find_stack_calculation(g_latest_stack, YES);
+
+                  if (stack == NULL)
+                    return FAILED;
+
+                  stack->relative_references = 1;
+                }
+              }
+
+              g_source_index = s_parser_source_index;
+              return SUCCEEDED;
+            }
+            if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+              break;
+          }
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+      /* </k053248> */
       /*************************************************************************************************/
       /*************************************************************************************************/
       /*************************************************************************************************/

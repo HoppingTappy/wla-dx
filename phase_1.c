@@ -155,7 +155,7 @@ static int s_dstruct_status = OFF, s_current_slot = 0;
 static int s_enumid_defined = 0, s_enumid = 0, s_enumid_adder = 1, s_enumid_export = 0;
 static int s_repeat_active = 0, s_saved_structures_max = 0, s_skip_elifs[256];
 
-#if defined(MCS6502) || defined(WDC65C02) || defined(CSG65CE02) || defined(W65816) || defined(HUC6280) || defined(MC6800) || defined(MC6801) || defined(MC6809)
+#if defined(MCS6502) || defined(WDC65C02) || defined(CSG65CE02) || defined(W65816) || defined(HUC6280) || defined(MC6800) || defined(MC6801) || defined(MC6809) || defined(K053248)
 int g_xbit_size = 0, g_accu_size = 8, g_index_size = 8;
 #endif
 

@@ -81,6 +81,17 @@ add_custom_command(
 	)
 ADD_CUSTOM_TARGET(MC6809_table ALL DEPENDS ${CMAKE_BINARY_DIR}/t6809.c)
 
+# --- WLA_TARGET=K053248
+add_executable (gen_K053248 ${CFILES})
+set_target_properties (gen_K053248 PROPERTIES COMPILE_DEFINITIONS "K053248")
+# Generate tables
+add_custom_command(
+    OUTPUT ${CMAKE_BINARY_DIR}/tk053248.c
+	COMMAND gen_K053248
+	DEPENDS gen_K053248
+	)
+ADD_CUSTOM_TARGET(MC6809_table ALL DEPENDS ${CMAKE_BINARY_DIR}/t6809.c)
+
 # --- WLA_TARGET=I8008
 add_executable (gen_I8008 ${CFILES})
 set_target_properties (gen_I8008 PROPERTIES COMPILE_DEFINITIONS "I8008")
