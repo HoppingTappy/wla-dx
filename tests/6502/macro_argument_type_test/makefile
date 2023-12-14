@@ -1,12 +1,11 @@
 
-CC = $(WLAVALGRIND) wla-6800
-CFLAGS = -x -v -o
+CC = $(WLAVALGRIND) wla-6502
+CFLAGS = -o
 LD = $(WLAVALGRIND) wlalink
-LDFLAGS = -v -d -s
+LDFLAGS = -v -s
 
 SFILES = main.s
-IFILES = 
-OFILES = main.o library.lib
+OFILES = main.o
 
 all: linked.rom check
 
@@ -16,15 +15,11 @@ linked.rom: $(OFILES) makefile
 main.o: main.s
 	$(CC) $(CFLAGS) main.o main.s
 
-library.lib: library.s
-	$(CC) -l library.lib library.s
-
 check: linked.rom
-	byte_tester -s library.s
-
+	byte_tester -s main.s
 
 $(OFILES): $(HFILES)
 
-
 clean:
-	rm -f $(OFILES) core *~ linked.rom linked.sym
+	rm -f $(OFILES) core *~ linked.rom *.sym
+
