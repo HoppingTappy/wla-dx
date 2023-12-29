@@ -3188,8 +3188,8 @@ int evaluate_token(void) {
         if (register_y_mode == B8(00000111) && register_y1 == B8(00000100)) {
           immediate = YES;
 
-          /* is immediate value [1, 8]? */
-          if (mode == MC68000_MODE_ALL && data_type_y == SUCCEEDED && data_y >= 1 && data_y <= 8) {
+          /* is immediate value [0, 7]? */
+          if (mode == MC68000_MODE_ALL && data_type_y == SUCCEEDED && data_y >= 0 && data_y <= 7) {
             mode = MC68000_MODE_Q;
 
             /* yes, switch add -> addq */
@@ -3303,11 +3303,11 @@ int evaluate_token(void) {
         if (mode == MC68000_MODE_Q) {
           /* actually here we encode the data (1-8) */
           if (data_type_y != SUCCEEDED) {
-            print_error(ERROR_NUM, "The value [1, 8] must be known at this stage, it cannot be postponed to the linker.\n");
+            print_error(ERROR_NUM, "The value [0, 7] must be known at this stage, it cannot be postponed to the linker.\n");
             return FAILED;
           }
-          if (data_y < 1 || data_y > 8) {
-            print_error(ERROR_NUM, "The value %d is out of range [1, 8].\n", data_y);
+          if (data_y < 0 || data_y > 7) {
+            print_error(ERROR_NUM, "The value %d is out of range [0, 7].\n", data_y);
             return FAILED;
           }
 
@@ -3667,11 +3667,11 @@ int evaluate_token(void) {
 	if (immediate == YES) {
           /* actually here we encode the data (1-8) */
           if (data_type_y != SUCCEEDED) {
-            print_error(ERROR_NUM, "The value [1, 8] must be known at this stage, it cannot be postponed to the linker.\n");
+            print_error(ERROR_NUM, "The value [0, 7] must be known at this stage, it cannot be postponed to the linker.\n");
             return FAILED;
           }
-          if (data_y < 1 || data_y > 8) {
-            print_error(ERROR_NUM, "The value %d is out of range [1, 8].\n", data_y);
+          if (data_y < 0 || data_y > 7) {
+            print_error(ERROR_NUM, "The value %d is out of range [0, 7].\n", data_y);
             return FAILED;
           }
 
@@ -3855,21 +3855,21 @@ int evaluate_token(void) {
 	if (immediate == YES) {
           if (data_type_y != SUCCEEDED) {
 	    if (register_x_mode == B8(00000000))
-	      print_error(ERROR_NUM, "The value [1, 32] must be known at this stage, it cannot be postponed to the linker.\n");
+	      print_error(ERROR_NUM, "The value [0, 31] must be known at this stage, it cannot be postponed to the linker.\n");
 	    else
-	      print_error(ERROR_NUM, "The value [1, 8] must be known at this stage, it cannot be postponed to the linker.\n");
+	      print_error(ERROR_NUM, "The value [0, 7] must be known at this stage, it cannot be postponed to the linker.\n");
 	    return FAILED;
           }
 
 	  if (register_x_mode == B8(00000000)) {
-	    if (data_y < 1 || data_y > 32) {
-	      print_error(ERROR_NUM, "The value %d is out of range [1, 32].\n", data_y);
+	    if (data_y < 0 || data_y > 31) {
+	      print_error(ERROR_NUM, "The value %d is out of range [0, 31].\n", data_y);
 	      return FAILED;
 	    }
 	  }
 	  else {
-	    if (data_y < 1 || data_y > 8) {
-	      print_error(ERROR_NUM, "The value %d is out of range [1, 8].\n", data_y);
+	    if (data_y < 0 || data_y > 7) {
+	      print_error(ERROR_NUM, "The value %d is out of range [0, 7].\n", data_y);
 	      return FAILED;
 	    }
 	  }
@@ -7173,7 +7173,7 @@ int evaluate_token(void) {
 
 #endif
 
-#ifdef I8080
+#if defined(I8080)
 
       /*************************************************************************************************/
       /*************************************************************************************************/
