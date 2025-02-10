@@ -34,7 +34,7 @@ FILE *g_file_out_ptr = NULL;
 __near long __stack = 200000;
 #endif
 
-char s_version_string[] = "$VER: wla-" WLA_NAME " 10.7a (9.4.2024)";
+char s_version_string[] = "$VER: wla-" WLA_NAME " 10.7a (3.2.2025)";
 char s_wla_version[] = "10.7";
 
 extern struct incbin_file_data *g_incbin_file_data_first, *g_ifd_tmp;
@@ -61,7 +61,7 @@ extern struct structure **g_saved_structures;
 extern struct string *g_fopen_filenames_first, *g_fopen_filenames_last;
 extern struct function *g_functions_first, *g_functions_last;
 extern struct namespace *g_namespaces_first;
-extern char g_mem_insert_action[MAX_NAME_LENGTH*3 + 1024];
+extern char g_mem_insert_action[MAX_NAME_LENGTH*3 + 1024], g_latest_include_dir[MAX_NAME_LENGTH + 1];
 extern char *g_label_stack[256], *g_tmp, *g_global_listfile_cmds;
 extern char *g_include_in_tmp, *g_tmp_a;
 extern char *g_rom_banks, *g_rom_banks_usage_table;
@@ -70,7 +70,7 @@ extern int g_include_in_tmp_size, g_tmp_a_size, *g_banks, *g_bankaddress, g_dsp_
 extern int g_saved_structures_count, g_sizeof_g_tmp, g_global_listfile_items, *g_global_listfile_ints;
 
 int g_output_format = OUTPUT_NONE, g_verbose_level = 0, g_test_mode = OFF;
-int g_extra_definitions = OFF, g_commandline_parsing = ON, g_makefile_rules = NO, g_makefile_add_phony_targets = NO;
+int g_extra_definitions = OFF, g_commandline_parsing = ON, g_makefile_rules = NO, g_makefile_add_phony_targets = NO, g_makefile_skip_file_handling = NO;
 FILE *g_makefile_rule_file = NULL;
 int g_listfile_data = NO, g_quiet = NO, g_use_incdir = NO, g_little_endian = YES;
 int g_create_sizeof_definitions = YES, g_global_label_hint = HINT_NONE, g_keep_empty_sections = NO;
@@ -517,9 +517,6 @@ static int _parse_flags(char **flags, int flagc, int *print_usage) {
     }
     else if (!strcmp(flags[count], "-M")) {
       g_makefile_rules = YES;
-      g_test_mode = ON;
-      g_verbose_level = 0;
-      g_quiet = YES;
     }
     else if (!strcmp(flags[count], "-MP"))
       g_makefile_add_phony_targets = YES;
@@ -563,6 +560,13 @@ static int _parse_flags(char **flags, int flagc, int *print_usage) {
           return FAILED;
       }
     }
+  }
+
+  if (g_makefile_rules == YES && g_makefile_rule_file == stdout) {
+    g_test_mode = ON;
+    g_verbose_level = 0;
+    g_quiet = YES;
+    g_makefile_skip_file_handling = YES;
   }
 
   /* make sure test mode is still turned on! */
@@ -1030,6 +1034,9 @@ int main(int argc, char *argv[]) {
 
   /* init mem_insert() buffer */
   g_mem_insert_action[0] = 0;
+
+  /* init include.c */
+  g_latest_include_dir[0] = 0;
   
   /* init hashmaps */
   g_defines_map = hashmap_new();
@@ -1159,7 +1166,7 @@ int main(int argc, char *argv[]) {
   g_commandline_parsing = OFF;
 
   /* start the process */
-  if (include_file(g_asm_name, &include_size, NULL) == FAILED)
+  if (include_file(g_asm_name, &include_size, NULL, NO) == FAILED)
     return 1;
 
   PROFILE_START();  

@@ -1475,6 +1475,12 @@ int input_number(void) {
   if (expand_variables_inside_string(g_label, sizeof(g_label), &k) == FAILED)
     return FAILED;
 
+  if (g_macro_active > 0 && g_label[0] == '?') {
+    /* CHILDLABELS .MACRO and local reference! */
+    if (process_label_inside_macro(NO, g_label, sizeof(g_label)) == FAILED)
+        return FAILED;
+  }
+  
   if (should_we_add_namespace() == YES) {
     if (add_namespace_to_a_label(g_label, sizeof(g_label), YES) == FAILED)
       return FAILED;
@@ -1519,7 +1525,7 @@ int input_number(void) {
   }
 
   process_special_labels(g_label);
-  
+
   return INPUT_NUMBER_ADDRESS_LABEL;
 }
 
@@ -1581,11 +1587,9 @@ int parse_string_length(char *end) {
 }
 
 
-void skip_whitespace(void) {
+static void _skip_whitespace(void) {
 
-  while (1) {
-    if (g_source_index >= g_source_file_size)
-      break;
+  while (g_source_index < g_source_file_size) {
     if (g_buffer[g_source_index] == ' ' || (g_buffer[g_source_index] == '\\' && g_buffer[g_source_index+1] == 0xA)) {
       g_source_index++;
       g_newline_beginning = OFF;
@@ -1600,13 +1604,13 @@ void skip_whitespace(void) {
   }
 }
 
-
+ 
 int get_next_plain_string(void) {
 
   int curly_braces = 0;
   char c;
   
-  skip_whitespace();
+  _skip_whitespace();
 
   g_ss = 0;
   while (1) {
@@ -1665,7 +1669,9 @@ int get_next_plain_string(void) {
 
 int get_next_token(void) {
 
-  skip_whitespace();
+  struct definition *tmp_def = NULL;
+  
+  _skip_whitespace();
 
   /* skip leading commas */
   while (g_buffer[g_source_index] == ',')
@@ -1769,6 +1775,15 @@ int get_next_token(void) {
   if (g_get_next_token_use_substitution == YES) {
     if (expand_variables_inside_string(g_tmp, g_sizeof_g_tmp, &g_ss) == FAILED)
       return FAILED;
+  }
+
+  /* is it actually a string definition? */
+  hashmap_get(g_defines_map, g_tmp, (void*)&tmp_def);
+  if (tmp_def != NULL) {
+    if (tmp_def->type == DEFINITION_TYPE_STRING) {
+      strcpy(g_tmp, tmp_def->string);
+      g_ss = (int)strlen(g_tmp);
+    }
   }
   
   return SUCCEEDED;

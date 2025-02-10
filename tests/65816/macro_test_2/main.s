@@ -236,3 +236,97 @@ label_\2:
 	addFourValues(0,-1,1-1,0)   ; @BT FF
 	oneMacro()		    ; @BT 01
         .db "<21"                   ; @BT END
+
+//////////////////////////////////////////////////////////////////////
+// test 8
+//////////////////////////////////////////////////////////////////////
+
+        .MACRO BeginProc
+        .ENDM
+        
+        .MACRO EndProc ARGS procName
+          .IF bankbyte(procName) >= 3
+            rtl
+          .ELSE
+            rts
+          .ENDIF
+        .ENDM
+
+        .MACRO EndProc2 ARGS procName
+          EndProc procName
+        .ENDM
+
+        .BANK 1 SLOT 0
+        .ORG $1000
+        .BASE 0
+
+        .print "---------------------------------------------------------------------\n"
+        .print "---                       BANKBYTE()                              ---\n"
+        .print "---------------------------------------------------------------------\n"
+        
+testFunc1:
+        BeginProc
+        .db "22>"               ; @BT TEST-22 22 START
+        lda #43                 ; @BT A9 2B
+        EndProc testFunc1       ; @BT 60
+        .db "<22"               ; @BT END
+
+        .BANK 2 SLOT 1
+        .ORG 0
+        .BASE 1
+        
+testFunc2:
+        BeginProc
+        .db "23>"               ; @BT TEST-23 23 START
+        lda #43                 ; @BT A9 2B
+        EndProc2 testFunc2      ; @BT 6B
+        .db "<23"               ; @BT END
+
+        .SECTION "FORCED1" FORCE BASE 2
+testFunc3:
+        BeginProc
+        .db "24>"               ; @BT TEST-24 24 START
+        lda #44                 ; @BT A9 2C
+        EndProc testFunc3       ; @BT 6B
+        .db bankbyte(testFunc3) ; @BT 04
+        .db "<24"               ; @BT END
+        .ENDS
+
+        .db "25>"               ; @BT TEST-25 25 START
+        .dl testFunc1           ; @BT 00 10 01
+        .db "<25"               ; @BT END
+
+testFunc4:
+        BeginProc
+        .db "26>"               ; @BT TEST-26 26 START
+        lda #45                 ; @BT A9 2D
+        EndProc2 testFunc2      ; @BT 6B
+        .dl testFunc4           ; @BT 1C 80 03
+        .db "<26"               ; @BT END
+
+        .db "27>"                   ; @BT TEST-27 27 START
+        .db bankbyte()              ; @BT 03
+        .db slot()                  ; @BT 01
+        .section "FORCED2" FORCE BASE 2 SLOT 0
+bankbyte4:      
+        .db base()                  ; @BT 02
+        .db bankbyte() + slot() + 1 ; @BT 05
+        .ends
+        .db base() - slot()         ; @BT 00
+        .db bankbyte(bankbyte4) != bankbyte() ; @BT 01
+        .db bankbyte(testFunc4) != bankbyte() ; @BT 00
+        .db "<27"                   ; @BT END
+        
+
+        .MACRO KeyToSound ARGS offs
+@keyToSound{\@+1}:
+        nop
+@@noKey:
+        nop
+@@done:
+        .ENDM
+
+macroCall:
+        KeyToSound 1
+        KeyToSound 2
+        

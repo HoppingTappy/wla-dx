@@ -70,11 +70,11 @@ int g_rambanks = 0, g_rambanks_defined = 0;
 int g_emptyfill = 0, g_emptyfill_defined = 0;
 int g_section_status = OFF, g_section_id = 1;
 int g_parsed_int, g_source_index, g_ifdef = 0, g_slots_amount = 0;
-int g_memorymap_defined = 0;
+int g_memorymap_defined = 0, g_bank = 0, g_base = -1;
 int g_banksize_defined = 0, g_banksize = 0;
 int g_rombankmap_defined = 0, *g_banks = NULL, *g_bankaddress = NULL;
 int g_bankheader_status = OFF;
-int g_macro_active = 0;
+int g_macro_active = 0, g_current_slot = 0, g_current_child_label_level = 0;
 int g_smc_defined = 0;
 int g_asciitable_defined = 0;
 int g_saved_structures_count = 0;
@@ -131,7 +131,7 @@ struct string *g_fopen_filenames_first = NULL, *g_fopen_filenames_last = NULL;
 struct function *g_functions_first = NULL, *g_functions_last = NULL;
 struct namespace *g_namespaces_first = NULL;
 
-extern char *g_buffer, *unfolded_buffer, g_label[MAX_NAME_LENGTH + 1], *g_include_dir, *g_full_name;
+extern char *g_buffer, *unfolded_buffer, g_label[MAX_NAME_LENGTH + 1], *g_include_dir, *g_full_name, g_latest_include_dir[MAX_NAME_LENGTH + 1];
 extern int g_source_file_size, g_input_number_error_msg, g_verbose_level, g_output_format, g_open_files, g_input_parse_if;
 extern int g_last_stack_id, g_latest_stack, g_ss, g_commandline_parsing, g_newline_beginning, g_expect_calculations, g_input_parse_special_chars;
 extern int g_extra_definitions, g_string_size, g_input_float_mode, g_operand_hint, g_operand_hint_type, g_dsp_enable_label_address_conversion;
@@ -146,14 +146,14 @@ extern char *g_final_name;
 extern struct active_file_info *g_active_file_info_first, *g_active_file_info_last, *g_active_file_info_tmp;
 extern struct file_name_info *g_file_name_info_first, *g_file_name_info_last, *g_file_name_info_tmp;
 extern struct incbin_file_data *g_incbin_file_data_first, *g_ifd_tmp;
-extern int g_makefile_rules, g_parsing_function_body, g_force_add_namespace, g_is_file_isolated_counter, g_force_ignore_namespace;
+extern int g_makefile_rules, g_makefile_skip_file_handling, g_parsing_function_body, g_force_add_namespace, g_is_file_isolated_counter, g_force_ignore_namespace;
 
 extern int create_tmp_file(FILE **);
 
 static int s_macro_stack_size = 0, s_repeat_stack_size = 0;
-static int s_bank = 0, s_bank_defined = 1, s_line_count_status = ON;
+static int s_bank_defined = 1, s_line_count_status = ON;
 static int s_block_status = 0, s_block_name_id = 0, s_parse_dstruct_result;
-static int s_dstruct_status = OFF, s_current_slot = 0;
+static int s_dstruct_status = OFF;
 static int s_enumid_defined = 0, s_enumid = 0, s_enumid_adder = 1, s_enumid_export = 0;
 static int s_repeat_active = 0, s_saved_structures_max = 0, s_skip_elifs[256];
 
@@ -187,6 +187,9 @@ static int s_defaultslot_defined = 0, s_defaultslot;
 static int s_autopriority = 65535;
 
 static struct section_def *s_active_ramsection = NULL;
+
+static char s_replacement_memory[1024], s_replacement_backup[1024];
+static int s_replacement_length = 0, s_replacement_index = -1;
 
 
 #define no_library_files(name)                                          \
@@ -420,12 +423,15 @@ static int _macro_start(struct macro_static *m, struct macro_runtime *mrt, int c
   mrt->macro_return_i = g_source_index;
   mrt->macro_return_line = g_active_file_info_last->line_current;
   mrt->macro_return_filename_id = g_active_file_info_last->filename_id;
+  mrt->child_label_level = g_current_child_label_level;
 
   if ((g_extra_definitions == ON) && (g_active_file_info_last->filename_id != m->filename_id)) {
     redefine("WLA_FILENAME", 0.0, get_file_name(m->filename_id), DEFINITION_TYPE_STRING, (int)strlen(get_file_name(m->filename_id)));
     redefine("wla_filename", 0.0, get_file_name(m->filename_id), DEFINITION_TYPE_STRING, (int)strlen(get_file_name(m->filename_id)));
   }
 
+  fprintf(g_file_out_ptr, "k%d ", m->start_line);
+  
   g_active_file_info_last->line_current = m->start_line;
   g_active_file_info_last->filename_id = m->filename_id;
   g_source_index = m->start;
@@ -831,6 +837,207 @@ static struct structure* _get_structure(char *name) {
 int directive_define_def_equ(void);
 
 
+static void _forget_macro_replacements(int move_index) {
+
+  if (s_replacement_index < 0)
+    return;
+
+  /* return what we replaced last time */
+  strncpy(&g_buffer[s_replacement_index], s_replacement_backup, s_replacement_length);
+
+  if (move_index == SUCCEEDED) {
+    /* relocate g_source_index */
+    g_source_index = s_replacement_index;
+    while (g_buffer[g_source_index++] != 0xA)
+      ;
+  }
+    
+  s_replacement_index = -1;
+}
+
+
+static int _run_macro_replacements(void) {
+
+  int i = 0, s, replaces = 0;
+  char c;
+  
+  /* skip empty lines */
+  while (g_source_index < g_source_file_size) {
+    if (g_buffer[g_source_index] == 0xA) {
+      g_source_index++;
+      next_line();
+      continue;
+    }
+    break;
+  }
+
+  /* process white space */
+  s = g_source_index;
+  c = g_buffer[s++];
+
+  while (c == ' ') {
+    s_replacement_memory[i++] = c;
+    c = g_buffer[s++];
+  }
+
+  if (c == '.') {
+    /* directive! abort! */
+    return SUCCEEDED;
+  }
+
+  /* anything to replace on this line? */
+  s--;
+  while (i < (int)sizeof(s_replacement_memory)) {
+    c = g_buffer[s++];
+
+    /* don't replace inside strings */
+    if (c == '"') {
+      s_replacement_memory[i++] = c;
+
+      while (i < (int)sizeof(s_replacement_memory)) {
+        c = g_buffer[s++];
+        if (c == '\\' && g_buffer[s] == '"') {
+          s_replacement_memory[i++] = c;
+          s_replacement_memory[i++] = '"';
+          s++;
+          continue;
+        }
+        else if (c == '"') {
+          s_replacement_memory[i++] = c;
+          break;
+        }
+        else
+          s_replacement_memory[i++] = c;
+      }
+      
+      continue;
+    }
+    
+    if (c == '\\' && g_buffer[s] >= '0' && g_buffer[s] <= '9') {
+      struct macro_argument *ma;
+      int k, x = i, param = 0, add_quotes = NO;
+
+      /* parse param index */
+      s_replacement_memory[x++] = c;
+      for (k = 0; k < 4; k++) {
+        c = g_buffer[s++];
+        s_replacement_memory[x++] = c;
+        if (c >= '0' && c <= '9')
+          param = (param * 10) + (c - '0');
+        else {
+          s--;
+          break;
+        }
+      }
+
+      if (param > g_macro_runtime_current->supplied_arguments) {
+        print_error(ERROR_NUM, "Referencing argument number %d inside macro \"%s\". The macro has only %d arguments.\n", param, g_macro_runtime_current->macro->name, g_macro_runtime_current->supplied_arguments);
+        return FAILED;
+      }
+      if (param == 0) {
+        print_error(ERROR_NUM, "Referencing argument number %d inside macro \"%s\". Macro arguments are counted from 1.\n", param, g_macro_runtime_current->macro->name);
+        return FAILED;
+      }
+
+      ma = g_macro_runtime_current->argument_data[param - 1];
+
+      /* only string parameters can be used to replace references */
+      if (ma->type == INPUT_NUMBER_STRING) {
+        /* add quotes? */
+        if (g_buffer[s] == '.' &&
+            toupper((int)g_buffer[s+1]) == 'L' &&
+            toupper((int)g_buffer[s+2]) == 'E' &&
+            toupper((int)g_buffer[s+3]) == 'N' &&
+            toupper((int)g_buffer[s+4]) == 'G' &&
+            toupper((int)g_buffer[s+5]) == 'T' &&
+            toupper((int)g_buffer[s+6]) == 'H')
+          add_quotes = YES;
+      
+        if (add_quotes == YES)
+          s_replacement_memory[i++] = '"';
+
+        strcpy(&s_replacement_memory[i], ma->string);
+        i += (int)strlen(ma->string);
+
+        if (add_quotes == YES)
+          s_replacement_memory[i++] = '"';
+
+        replaces++;
+      }
+      else {
+        /* no replacement -> continue as usual */
+        i = x;
+        s++;
+      }
+    }
+    else if (c == 0xA) {
+      s_replacement_memory[i++] = 0xA;
+      s_replacement_memory[i] = 0;
+        
+      if (replaces > 0) {
+        /* backup and overwrite! */
+        i++;
+
+        strncpy(s_replacement_backup, &g_buffer[g_source_index], i);
+        if (g_source_index + i < g_source_file_size)
+          strcpy(&g_buffer[g_source_index], s_replacement_memory);
+        else {
+          print_error(ERROR_NUM, "Expected buffer overrun in _run_macro_replacements()! Please submit a bug report!\n");
+          return FAILED;
+        }
+        
+        s_replacement_length = i;
+        s_replacement_index = g_source_index;
+      }
+
+      break;
+    }
+    else
+      s_replacement_memory[i++] = c;
+  }
+
+  if (i >= (int)sizeof(s_replacement_memory) - 1) {
+    print_error(ERROR_LOG, "Out of s_replacement_memory buffer size (buffer %d bytes, got %d bytes) in phase_1.c!\n", (int)sizeof(s_replacement_memory), i);
+    return FAILED;
+  }
+
+  return SUCCEEDED;
+}
+
+
+int process_label_inside_macro(int add_namespace, char *buffer, int sizeof_buffer) {
+
+  struct macro_runtime *rt;
+  struct macro_static *st;
+  int f, start = 0;
+    
+  rt = &g_macro_stack[g_macro_active - 1];
+  st = rt->macro;
+
+  if (st->child_labels == YES) {
+    char new_label[MAX_NAME_LENGTH + 1];
+
+    /* prefix the label with enough @s */
+    for (f = 0; f < rt->child_label_level + 1; f++)
+      new_label[f] = '@';
+
+    /* skip initial '?' ? */
+    if (buffer[0] == '?')
+      start = 1;
+    
+    strcpy(&new_label[f], &buffer[start]);
+    strcpy(buffer, new_label);
+  }
+
+  if (add_namespace == YES && should_we_add_namespace() == YES) {
+    if (add_namespace_to_a_label(buffer, sizeof_buffer, YES) == FAILED)
+      return FAILED;
+  }
+
+  return SUCCEEDED;
+}
+
+
 int phase_1(void) {
 
   struct macro_runtime *mrt;
@@ -856,6 +1063,11 @@ int phase_1(void) {
     fprintf(g_file_out_ptr, "B%d %d O%d ", 0, 0, 0);
 
   while (1) {
+    if (g_macro_active != 0) {
+      if (_run_macro_replacements() == FAILED)
+        return FAILED;
+    }
+    
     q = get_next_token();
     if (q == FAILED)
       return FAILED;
@@ -878,13 +1090,15 @@ int phase_1(void) {
     /* instruction parser might set this to YES, inside evaluate_token() */
     g_input_number_expects_dot = NO;
 #endif
+
+    _forget_macro_replacements(q);
     
     if (q == SUCCEEDED)
       continue;
     else if (q == EVALUATE_TOKEN_EOP)
       return SUCCEEDED;
     else if (q == EVALUATE_TOKEN_NOT_IDENTIFIED) {
-      int got_opening_parenthesis = NO, end_of_line = NO;
+      int got_opening_parenthesis = NO;
 
       /* check if it is of the form "LABEL:XYZ" */
       for (q = 0; q < g_ss; q++) {
@@ -951,10 +1165,8 @@ int phase_1(void) {
           }
 
           if (g_macro_active != 0) {
-            if (should_we_add_namespace() == YES) {
-              if (add_namespace_to_a_label(g_tmp, g_sizeof_g_tmp, YES) == FAILED)
-                return FAILED;
-            }
+            if (process_label_inside_macro(YES, g_tmp, g_sizeof_g_tmp) == FAILED)
+              return FAILED;
           }
 
           if (add_label_to_label_stack(g_tmp) == FAILED)
@@ -1033,7 +1245,7 @@ int phase_1(void) {
         g_input_allow_leading_ampersand = NO;
         g_input_float_mode = OFF;
         if (q == INPUT_NUMBER_EOL) {
-          end_of_line = YES;
+          g_source_index = o;
           break;
         }
 
@@ -1101,9 +1313,6 @@ int phase_1(void) {
             redefine(argument_name, g_parsed_double, NULL, DEFINITION_TYPE_VALUE, 0);
         }
       }
-
-      if (end_of_line == YES)
-        next_line();
 
       mrt->supplied_arguments = p;
       if (_macro_start(m, mrt, MACRO_CALLER_NORMAL, p) == FAILED)
@@ -2419,8 +2628,8 @@ int directive_orga(void) {
 
   g_org_defined = 1;
 
-  current_slot_address = g_slots[s_current_slot].address;
-  if (g_parsed_int < current_slot_address || g_parsed_int > (current_slot_address + g_slots[s_current_slot].size)) {
+  current_slot_address = g_slots[g_current_slot].address;
+  if (g_parsed_int < current_slot_address || g_parsed_int > (current_slot_address + g_slots[g_current_slot].size)) {
     print_error(ERROR_DIR, ".ORGA is outside the current SLOT.\n");
     return FAILED;
   }
@@ -2471,9 +2680,9 @@ int directive_slot(void) {
     return FAILED;
   }
 
-  fprintf(g_file_out_ptr, "B%d %d ", s_bank, g_parsed_int);
+  fprintf(g_file_out_ptr, "B%d %d ", g_bank, g_parsed_int);
 
-  s_current_slot = g_parsed_int;
+  g_current_slot = g_parsed_int;
 
   return SUCCEEDED;
 }
@@ -2512,7 +2721,7 @@ int directive_bank(void) {
     return FAILED;
   }
 
-  s_bank = g_parsed_int;
+  g_bank = g_parsed_int;
   s_bank_defined = 1;
 
   if (compare_next_token("SLOT") == SUCCEEDED) {
@@ -2543,17 +2752,17 @@ int directive_bank(void) {
     }
 
     if (g_output_format != OUTPUT_LIBRARY)
-      fprintf(g_file_out_ptr, "B%d %d ", s_bank, g_parsed_int);
+      fprintf(g_file_out_ptr, "B%d %d ", g_bank, g_parsed_int);
 
-    bank = s_bank;
+    bank = g_bank;
     slot = g_parsed_int;
-    s_current_slot = g_parsed_int;
+    g_current_slot = g_parsed_int;
   }
   else {
     fprintf(g_file_out_ptr, "B%d %d ", g_parsed_int, s_defaultslot);
     bank = g_parsed_int;
     slot = s_defaultslot;
-    s_current_slot = s_defaultslot;
+    g_current_slot = s_defaultslot;
   }
 
   if (g_slots[slot].size < g_banks[bank]) {
@@ -4436,9 +4645,33 @@ static int _is_namespace_valid(char *name) {
 }
 
 
+void use_dir(char *directory, char *path) {
+
+  char tmp[MAX_NAME_LENGTH + 1];
+
+  strcpy(tmp, directory);
+  strcpy(&tmp[(int)strlen(tmp)], path);
+  strcpy(path, tmp);
+}
+
+
+void get_dir(char *full_path, char *tmp) {
+
+  int o;
+      
+  for (o = (int)strlen(full_path) - 1; o >= 0; o--) {
+    if (full_path[o] == '/' || full_path[o] == '\\')
+      break;
+  }
+  o++;
+  strncpy(tmp, full_path, o);
+  tmp[o] = 0;
+}
+
+
 int directive_include(int is_real) {
 
-  int o, include_size = 0, accumulated_name_length = 0, character_c_position = 0, got_once = NO;
+  int o, include_size = 0, accumulated_name_length = 0, character_c_position = 0, got_once = NO, is_full_path = NO;
   char namespace[MAX_NAME_LENGTH + 1], path[MAX_NAME_LENGTH + 1], accumulated_name[MAX_NAME_LENGTH + 1];
 
   if (is_real == YES) {
@@ -4460,7 +4693,8 @@ int directive_include(int is_real) {
 
   while (1) {
     if (compare_next_token("NAMESPACE") == SUCCEEDED || compare_next_token("ONCE") == SUCCEEDED ||
-        compare_next_token("ISOLATED") == SUCCEEDED)
+        compare_next_token("ISOLATED") == SUCCEEDED || compare_next_token("LATESTDIR") == SUCCEEDED ||
+        compare_next_token("RELATIVEDIR") == SUCCEEDED)
       break;
 
     g_expect_calculations = NO;
@@ -4526,6 +4760,23 @@ int directive_include(int is_real) {
       if (g_is_file_isolated_counter == 0)
         g_is_file_isolated_counter++;
     }
+    else if (compare_next_token("LATESTDIR") == SUCCEEDED) {
+      skip_next_token();
+
+      use_dir(g_latest_include_dir, path);
+
+      is_full_path = YES;
+    }
+    else if (compare_next_token("RELATIVEDIR") == SUCCEEDED) {
+      char tmp[MAX_NAME_LENGTH + 1], *full_path = get_file_name(g_active_file_info_last->filename_id);
+
+      skip_next_token();
+
+      get_dir(full_path, tmp);
+      use_dir(tmp, path);
+
+      is_full_path = YES;
+    }
     else
       break;
   }
@@ -4535,7 +4786,7 @@ int directive_include(int is_real) {
     strcpy(namespace, g_active_file_info_last->namespace);
   
   if (is_real == YES) {
-    if (include_file(path, &include_size, namespace) == FAILED)
+    if (include_file(path, &include_size, namespace, is_full_path) == FAILED)
       return FAILED;
   
     /* WARNING: this is tricky: did we just include a file inside a macro? */
@@ -4577,8 +4828,9 @@ int directive_include(int is_real) {
 
 int directive_incbin(void) {
 
-  struct macro_static *macro;
   int skip, read, j, o, id, swap, filter_size;
+  char tmp[MAX_NAME_LENGTH + 1];
+  struct macro_static *macro;
 
   if (g_org_defined == 0 && g_output_format != OUTPUT_LIBRARY) {
     print_error(ERROR_LOG, "Before you can .INCBIN data you'll need to use ORG.\n");
@@ -4598,8 +4850,9 @@ int directive_incbin(void) {
 
   /* convert the path string to local enviroment */
   localize_path(g_label);
+  strcpy(tmp, g_label);
 
-  if (incbin_file(g_label, &id, &swap, &skip, &read, &macro, &filter_size) == FAILED)
+  if (incbin_file(tmp, &id, &swap, &skip, &read, &macro, &filter_size) == FAILED)
     return FAILED;
   
   if (macro == NULL) {
@@ -5249,8 +5502,8 @@ int directive_section(void) {
       
     g_sec_next = g_sections_first;
     while (g_sec_next != NULL) {
-      if (g_sec_next->name[0] == 'B' && strcmp(g_sec_next->name, g_tmp) == 0 && g_sec_next->bank == s_bank) {
-        print_error(ERROR_DIR, "BANKHEADER section was defined for the second time for bank %d.\n", s_bank);
+      if (g_sec_next->name[0] == 'B' && strcmp(g_sec_next->name, g_tmp) == 0 && g_sec_next->bank == g_bank) {
+        print_error(ERROR_DIR, "BANKHEADER section was defined for the second time for bank %d.\n", g_bank);
         free(g_sec_tmp);
         return FAILED;
       }
@@ -5272,7 +5525,6 @@ int directive_section(void) {
   strcpy(g_sec_tmp->name, g_tmp);
   g_sec_tmp->next = NULL;
   g_sec_tmp->status = SECTION_STATUS_FREE;
-
   g_sec_tmp->label_map = hashmap_new();
 
   if (g_sections_first == NULL) {
@@ -5474,6 +5726,7 @@ int directive_section(void) {
 
       g_sec_tmp->offset = g_parsed_int;
     }
+    /* window? */
     else if (compare_next_token("WINDOW") == SUCCEEDED) {
       if (skip_next_token() == FAILED)
         return FAILED;
@@ -5497,6 +5750,7 @@ int directive_section(void) {
         return FAILED;
       }
     }
+    /* bitwindow? */
     else if (compare_next_token("BITWINDOW") == SUCCEEDED) {
       if (skip_next_token() == FAILED)
         return FAILED;
@@ -5513,16 +5767,7 @@ int directive_section(void) {
       
       g_sec_tmp->bitwindow = g_parsed_int;
     }
-    /* the type of the section */
-    else if (compare_next_token("FORCE") == SUCCEEDED) {
-      if (g_output_format == OUTPUT_LIBRARY) {
-        print_error(ERROR_DIR, "Libraries don't take FORCE sections.\n");
-        return FAILED;
-      }
-      g_sec_tmp->status = SECTION_STATUS_FORCE;
-      if (skip_next_token() == FAILED)
-        return FAILED;
-    }
+    /* banks? */
     else if (compare_next_token("BANKS") == SUCCEEDED) {
       if (skip_next_token() == FAILED)
         return FAILED;
@@ -5532,6 +5777,16 @@ int directive_section(void) {
         return FAILED;
 
       strcpy(g_sec_tmp->banks, g_tmp);
+    }
+    /* the type of the section */
+    else if (compare_next_token("FORCE") == SUCCEEDED) {
+      if (g_output_format == OUTPUT_LIBRARY) {
+        print_error(ERROR_DIR, "Libraries don't take FORCE sections.\n");
+        return FAILED;
+      }
+      g_sec_tmp->status = SECTION_STATUS_FORCE;
+      if (skip_next_token() == FAILED)
+        return FAILED;
     }
     else if (compare_next_token("SEMISUPERFREE") == SUCCEEDED) {
       if (g_output_format == OUTPUT_LIBRARY) {
@@ -5587,6 +5842,7 @@ int directive_section(void) {
 
       g_sec_tmp->advance_org = NO;
     }
+    /* appendto? */
     else if (compare_next_token("APPENDTO") == SUCCEEDED) {
       struct after_section *after_tmp;
 
@@ -5635,6 +5891,7 @@ int directive_section(void) {
       after_tmp->next = g_after_sections;
       g_after_sections = after_tmp;
     }
+    /* after? */
     else if (compare_next_token("AFTER") == SUCCEEDED) {
       struct after_section *after_tmp;
     
@@ -5680,6 +5937,7 @@ int directive_section(void) {
       after_tmp->next = g_after_sections;
       g_after_sections = after_tmp;
     }
+    /* priority? */
     else if (compare_next_token("PRIORITY") == SUCCEEDED) {
       if (skip_next_token() == FAILED)
         return FAILED;
@@ -5691,12 +5949,14 @@ int directive_section(void) {
 
       g_sec_tmp->priority = g_parsed_int;
     }
+    /* autopriority? */
     else if (compare_next_token("AUTOPRIORITY") == SUCCEEDED) {
       if (skip_next_token() == FAILED)
         return FAILED;
 
       g_sec_tmp->priority = s_autopriority--;
     }
+    /* keep? */
     else if (compare_next_token("KEEP") == SUCCEEDED) {
       if (skip_next_token() == FAILED)
         return FAILED;
@@ -5722,9 +5982,9 @@ int directive_section(void) {
   g_sec_tmp->alive = YES;
   g_sec_tmp->filename_id = g_active_file_info_last->filename_id;
   if (g_sec_tmp->bank < 0)
-    g_sec_tmp->bank = s_bank;
+    g_sec_tmp->bank = g_bank;
   if (g_sec_tmp->slot < 0)
-    g_sec_tmp->slot = s_current_slot;
+    g_sec_tmp->slot = g_current_slot;
   g_section_status = ON;
 
   fprintf(g_file_out_ptr, "S%d ", g_sec_tmp->id);
@@ -5867,9 +6127,9 @@ int directive_fopen(void) {
   strcpy(f->name, g_tmp);
 
   /* open the file */
-  f->f = fopen(f->filename, "rb");
+  o = find_file(f->filename, &(f->f), NO);
   if (f->f == NULL) {
-    if (g_makefile_rules == YES) {
+    if (g_makefile_skip_file_handling == YES) {
       /* lets just use a tmp file for file operations */
       create_tmp_file(&f->f);
       if (f->f == NULL) {
@@ -7710,6 +7970,8 @@ int directive_function(void) {
       strcmp("hiword", g_label) == 0 ||
       strcmp("bankbyte", g_label) == 0 ||
       strcmp("bank", g_label) == 0 ||
+      strcmp("base", g_label) == 0 ||
+      strcmp("slot", g_label) == 0 ||
       strcmp("round", g_label) == 0 ||
       strcmp("ceil", g_label) == 0 ||
       strcmp("floor", g_label) == 0 ||
@@ -7729,6 +7991,8 @@ int directive_function(void) {
       strcmp("pow", g_label) == 0 ||
       strcmp("clamp", g_label) == 0 ||
       strcmp("sign", g_label) == 0 ||
+      strcmp("is", g_label) == 0 ||
+      strcmp("get", g_label) == 0 ||
       strcmp("abs", g_label) == 0) {
     print_error(ERROR_DIR, "You cannot redefine a built-in .FUNCTION \"%s\"!\n", g_label);
     return FAILED;
@@ -8925,6 +9189,7 @@ int directive_macro(void) {
   m->argument_names = NULL;
   m->isolated_local = NO;
   m->isolated_unnamed = NO;
+  m->child_labels = NO;
   m->id = g_macro_id++;
 
   if (g_is_file_isolated_counter > 0) {
@@ -8947,28 +9212,28 @@ int directive_macro(void) {
   while (1) {
     int got_some = NO;
     
-    /* is ISOLATED defined? */
     if (compare_next_token("ISOLATED") == SUCCEEDED) {
       skip_next_token();
       got_some = YES;
       m->isolated_local = YES;
       m->isolated_unnamed = YES;
     }
-
-    /* is ISOLATELOCAL defined? */
-    if (compare_next_token("ISOLATELOCAL") == SUCCEEDED) {
+    else if (compare_next_token("ISOLATELOCAL") == SUCCEEDED) {
       skip_next_token();
       got_some = YES;
       m->isolated_local = YES;
     }
-
-    /* is ISOLATEUNNAMED defined? */
-    if (compare_next_token("ISOLATEUNNAMED") == SUCCEEDED) {
+    else if (compare_next_token("ISOLATEUNNAMED") == SUCCEEDED) {
       skip_next_token();
       got_some = YES;
       m->isolated_unnamed = YES;
     }
-
+    else if (compare_next_token("CHILDLABELS") == SUCCEEDED) {
+      skip_next_token();
+      got_some = YES;
+      m->child_labels = YES;
+    }
+    
     if (got_some == NO)
       break;
   }
@@ -9041,11 +9306,13 @@ static int _find_next_endr(void) {
 int directive_rept_repeat_while(int is_while) {
   
   char c[16], index_name[MAX_NAME_LENGTH + 1];
-  int q, start;
+  int q, start, line;
 
   strcpy(c, g_current_directive);
 
   index_name[0] = 0;
+  start = g_source_index;
+  line = g_active_file_info_last->line_current;
 
   if (is_while == NO) {
     q = input_number();
@@ -9072,13 +9339,9 @@ int directive_rept_repeat_while(int is_while) {
 
       strcpy(index_name, g_label);
     }
-
-    start = g_source_index;
   }
   else {
     /* while */
-    start = g_source_index;
-
     g_input_parse_if = YES;
     q = input_number();
     g_input_parse_if = NO;
@@ -9120,7 +9383,7 @@ int directive_rept_repeat_while(int is_while) {
   g_repeat_stack[s_repeat_active].start = start;
   g_repeat_stack[s_repeat_active].counter = g_parsed_int;
   g_repeat_stack[s_repeat_active].repeats = 0;
-  g_repeat_stack[s_repeat_active].start_line = g_active_file_info_last->line_current;
+  g_repeat_stack[s_repeat_active].start_line = line;
   g_repeat_stack[s_repeat_active].start_ifdef = g_ifdef;
   g_repeat_stack[s_repeat_active].is_while = is_while;
   strcpy(g_repeat_stack[s_repeat_active].index_name, index_name);
@@ -9144,6 +9407,9 @@ int directive_endm(void) {
 
     /* macro call end */
     fprintf(g_file_out_ptr, "I%d %s ", g_macro_stack[g_macro_active].macro->id, g_macro_stack[g_macro_active].macro->name);
+
+    if (g_macro_stack[g_macro_active].macro->child_labels == YES)
+      g_current_child_label_level = g_macro_stack[g_macro_active].child_label_level;
     
     /* free the arguments */
     if (g_macro_stack[g_macro_active].supplied_arguments > 0) {
@@ -10398,7 +10664,7 @@ int directive_stringmaptable(void) {
 
   table_file = fopen(map->filename, "r");
   if (table_file == NULL) {
-    if (g_makefile_rules == YES) {
+    if (g_makefile_skip_file_handling == YES) {
       /* if in makefile mode, this is not an error, we just make an empty map */
       return SUCCEEDED;
     }
@@ -10555,7 +10821,7 @@ int directive_stringmap(void) {
     }
     /* if no match was found, it's an error */
     if (entry == NULL) {
-      if (g_makefile_rules == YES) {
+      if (g_makefile_skip_file_handling == YES) {
         /* in makefile mode, it's ignored */
         return SUCCEEDED;
       }
@@ -10753,6 +11019,10 @@ int directive_endr_continue(void) {
     g_source_index = rr->start;
     g_active_file_info_last->line_current = rr->start_line;
     g_ifdef = rr->start_ifdef;
+
+    /* roll past the count */
+    while (g_buffer[g_source_index++] != 0xA)
+      ;
   }
   
   return SUCCEEDED;
@@ -10906,6 +11176,7 @@ int parse_directive(void) {
         }
 
         fprintf(g_file_out_ptr, "b%d ", g_parsed_int);
+        g_base = g_parsed_int;
 
         return SUCCEEDED;
       }
@@ -12896,6 +13167,10 @@ int add_label_to_label_stack(char *l) {
   int level = 0, q;
   struct definition *tmp_def;
 
+  /* skip anonymous labels */
+  if (is_label_anonymous(l) == SUCCEEDED)
+    return SUCCEEDED;
+
   if (_is_a_reserved_label(l) == YES)
     return FAILED;
 
@@ -12906,11 +13181,7 @@ int add_label_to_label_stack(char *l) {
     return FAILED;
   }
   
-  /* skip anonymous labels */
-  if (is_label_anonymous(l) == SUCCEEDED)
-    return SUCCEEDED;
-
-  for (q = 0; q < MAX_NAME_LENGTH; q++) {
+  for (q = 0; q < MAX_NAME_LENGTH && l[q] != 0; q++) {
     if (l[q] == '@')
       level++;
     else
@@ -12930,6 +13201,8 @@ int add_label_to_label_stack(char *l) {
   else
     strcpy(g_label_stack[level], &l[level-1]);
 
+  g_current_child_label_level = level;
+  
   /*
     print_text(NO, "*************************************\n");
     print_text(NO, "LABEL STACK:\n");

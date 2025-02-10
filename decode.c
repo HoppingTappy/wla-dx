@@ -23,7 +23,7 @@ extern int g_in_enum, g_in_ramsection, g_in_struct, g_macro_id, g_sizeof_g_tmp, 
 extern int g_ss, g_source_index, g_parsed_int, g_section_status, g_org_defined, g_bankheader_status, g_macro_active;
 extern int g_source_file_size, g_input_number_error_msg, g_verbose_level, g_output_format, g_open_files;
 extern int g_last_stack_id, g_latest_stack, g_ss, g_commandline_parsing, g_newline_beginning, g_expect_calculations, g_input_parse_special_chars;
-extern int g_instruction_n[256], g_instruction_p[256], g_dsp_enable_label_address_conversion;
+extern int g_instruction_n[256], g_instruction_p[256], g_dsp_enable_label_address_conversion, g_current_child_label_level;
 extern int g_extra_definitions, g_string_size, g_input_float_mode, g_operand_hint, g_operand_hint_type, g_parse_floats;
 extern struct instruction g_instructions_table[];
 extern struct macro_runtime *g_macro_stack, *g_macro_runtime_current;
@@ -448,7 +448,7 @@ static int _mc68000_parse_ea(char *code, int *index, int *reg1, int *reg2, int *
 
       return SUCCEEDED;
     }
-    else if ((c == 'A' || c == 'D') && (code[i+1] >= '0' && code[i+1] <= '7')) {
+    else if (((c == 'A' || c == 'D') && (code[i+1] >= '0' && code[i+1] <= '7')) || (c == 'S' && toupper((int)code[i+1]) == 'P')) {
       /* try to parse a register list, could be a single register though */
       int old_i = i, registers = 0, list = 0, success = YES, number, c2, number2;
 
@@ -460,6 +460,11 @@ static int _mc68000_parse_ea(char *code, int *index, int *reg1, int *reg2, int *
         i++;
         if (code[i] >= '0' && code[i] <= '7')
           number = code[i++] - '0';
+        else if (c == 'S' && toupper((int)code[i]) == 'P') {
+          i++;
+          c = 'A';
+          number = 7;
+        }
         else {
           success = NO;
           break;
@@ -494,7 +499,7 @@ static int _mc68000_parse_ea(char *code, int *index, int *reg1, int *reg2, int *
           c2 = toupper((int)code[i]);
           i++;
 
-          if (c2 != c) {
+          if ((c2 == 'S' && c != 'A') || (c2 != 'S' && c2 != c)) {
             /* different register type */
             print_error(ERROR_NUM, "Unsupported register range.\n");
             return FAILED;
@@ -502,6 +507,11 @@ static int _mc68000_parse_ea(char *code, int *index, int *reg1, int *reg2, int *
 
           if (code[i] >= '0' && code[i] <= '7')
             number2 = code[i++] - '0';
+          else if (c2 == 'S' && toupper((int)code[i]) == 'P') {
+            c2 = 'A';
+            number2 = 7;
+            i++;
+          }
           else {
             print_error(ERROR_NUM, "Malformed register range.\n");
             return FAILED;
@@ -563,18 +573,21 @@ static int _mc68000_parse_ea(char *code, int *index, int *reg1, int *reg2, int *
     }
   }
 
-  if (c == 'A' || c == 'D') {
+  if (c == 'A' || c == 'D' || c == 'S') {
     /* An OR Dn */
     if (predecrement == YES)
       return FAILED;
     
     i++;
-    if (code[i] >= '0' && code[i] <= '7') {
-      *reg1 = code[i] - '0';
+    if ((code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
+      if (c == 'S')
+        *reg1 = 7;
+      else
+        *reg1 = code[i] - '0';
 
       i++;
       if (code[i] == 0xA || code[i] == ',' || (code[i] == ' ' && code[i+1] == '\\')) {
-        if (c == 'A')
+        if (c == 'A' || c == 'S')
           *mode = B8(00000001);
         else
           *mode = B8(00000000);
@@ -626,10 +639,13 @@ static int _mc68000_parse_ea(char *code, int *index, int *reg1, int *reg2, int *
     c = toupper((int)code[i]);
 
     /* An? */
-    if (c == 'A') {
+    if (c == 'A' || c =='S') {
       i++;
-      if (code[i] >= '0' && code[i] <= '7') {
-        *reg1 = code[i] - '0';
+      if ((code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
+        if (c == 'S')
+          *reg1 = 7;
+        else
+          *reg1 = code[i] - '0';
 
         i++;
         if (code[i] == ')') {
@@ -688,14 +704,17 @@ static int _mc68000_parse_ea(char *code, int *index, int *reg1, int *reg2, int *
       
       c = toupper((int)code[i]);
 
-      if (c == 'A') {
+      if (c == 'A' || c == 'S') {
         /* (d16,An) OR (d8,An,Dm) */
         if (predecrement == YES)
           return FAILED;
 
         i++;
-        if (code[i] >= '0' && code[i] <= '7') {
-          *reg1 = code[i] - '0';
+        if ((code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
+          if (c == 'S')
+            *reg1 = 7;
+          else
+            *reg1 = code[i] - '0';
 
           i++;
           if (code[i] == ')') {
@@ -880,12 +899,16 @@ static int _mc68000_parse_ea(char *code, int *index, int *reg1, int *reg2, int *
         }
       }
     }
-    else if (c == 'A') {
+    else if (c == 'A' || c == 'S') {
       /* d16(An) */
       i++;
-      if (code[i] >= '0' && code[i] <= '7') {
+      if ((code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
         *mode = B8(00000101);
-        *reg1 = code[i] - '0';
+
+        if (c == 'S')
+          *reg1 = 7;
+        else
+          *reg1 = code[i] - '0';
 
         i++;
                 
@@ -928,19 +951,22 @@ static int _mc68000_parse_register(char *code, int *index, int *reg, int *mode) 
 
   c = toupper((int)code[i]);
 
-  if (c == 'A' || c == 'D') {
+  if (c == 'A' || c == 'D' || c == 'S') {
     if (predecrement == YES)
       return FAILED;
     
     i++;
-    if (code[i] >= '0' && code[i] <= '7') {
-      *reg = code[i] - '0';
+    if ((code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
+      if (c == 'S')
+        *reg = 7;
+      else
+        *reg = code[i] - '0';
 
       i++;
       if (code[i] != 0xA && code[i] != ',' && code[i] != '\\' && (!(code[i] == ' ' && code[i+1] == '\\')))
         return FAILED;
 
-      if (c == 'A')
+      if (c == 'A' || c == 'S')
         *mode = B8(00000001);
       else
         *mode = B8(00000000);
@@ -951,10 +977,13 @@ static int _mc68000_parse_register(char *code, int *index, int *reg, int *mode) 
 
     c = toupper((int)code[i]);
 
-    if (c == 'A') {
+    if (c == 'A' || c == 'S') {
       i++;
-      if (code[i] >= '0' && code[i] <= '7') {
-        *reg = code[i] - '0';
+      if ((code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
+        if (c == 'S')
+          *reg = 7;
+        else
+          *reg = code[i] - '0';
 
         i++;
         if (code[i] != ')')
@@ -1061,12 +1090,10 @@ int evaluate_token(void) {
     }
 
     if (g_macro_active != 0) {
-      if (should_we_add_namespace() == YES) {
-        if (add_namespace_to_a_label(g_tmp, g_sizeof_g_tmp, YES) == FAILED)
-          return FAILED;
-      }
+      if (process_label_inside_macro(YES, g_tmp, g_sizeof_g_tmp) == FAILED)
+        return FAILED;
     }
-
+      
     if (add_label_to_label_stack(g_tmp) == FAILED)
       return FAILED;
     
@@ -3907,7 +3934,7 @@ int evaluate_token(void) {
         _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
 
 	if (immediate == YES) {
-	  /* output bit number 1-8/1-32 */
+	  /* output bit number 0-7/0-31 */
 	  _output_assembled_instruction(s_instruction_tmp, "d0 d%d ", data_y);
 	}
 

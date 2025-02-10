@@ -624,6 +624,7 @@ struct macro_static {
   int  nargument_names;
   int  isolated_local;
   int  isolated_unnamed;
+  int  child_labels;
   char **argument_names;
   struct macro_static *next;
 };
@@ -655,6 +656,7 @@ struct macro_runtime {
   int  macro_return_line;
   int  macro_return_filename_id;
   int  supplied_arguments;
+  int  child_label_level;
   int  caller;
   char string[MAX_NAME_LENGTH + 1];
   int  string_current;
@@ -925,6 +927,7 @@ struct data_stream_item {
   int  address;
   int  bank;
   int  slot;
+  int  base;
   struct data_stream_item *next;
 };
 

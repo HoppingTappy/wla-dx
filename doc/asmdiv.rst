@@ -2068,6 +2068,14 @@ in the current working directory. If the ``INCDIR`` is specified in the command
 line, WLA will first search for the file in that directory. If not found, it
 will then proceed as aforementioned.
 
+To use the latest directory we've used to ``.INCLUDE`` or ``.INCBIN`` a file, issue ``LATESTDIR``::
+
+    .INCBIN "rgb.bin" LATESTDIR
+
+To use the current file's directory, issue ``RELATIVEDIR``::
+
+    .INCBIN "rgb.bin" RELATIVEDIR
+
 This is not a compulsory directive.
 
 
@@ -2127,6 +2135,14 @@ If you are using the ``.INCLUDE`` inside a ``.MACRO`` and want to have the file
 included only once, use the keyword ``ONCE``::
 
     .INCLUDE "include_one.s" NAMESPACE "once" ONCE
+
+To use the latest directory we've used to ``.INCLUDE`` or ``.INCBIN`` a file, issue ``LATESTDIR``::
+
+    .INCLUDE "common.i" LATESTDIR
+
+To use the current file's directory, issue ``RELATIVEDIR``::
+
+    .INCLUDE "common.i" RELATIVEDIR
   
 This is not a compulsory directive.
 
@@ -2446,9 +2462,25 @@ To enable only local label isolation use the keyword ``ISOLATELOCAL`` instead of
 Note that there is an alternative way of defining a ``.MACRO``::
 
     .macro DBSUMOFTWOVALUES(v1,v2) isolated
-    .db v1+v2
+      .db v1+v2
     .endm
 
+To let the ``.MACRO`` create child labels to the latest label defined before
+the ``.MACRO`` is called, use ``CHILDLABELS``::
+
+           .macro extras childlabels
+    child: nop
+    @granchild:
+           jp ?@granchild
+           .endm
+
+    parent:
+           extras
+
+The example will create labels ``parent``, ``parent@child`` and ``parent@child@granchild``.
+Note that if you want to reference these labels inside the ``.MACRO`` you'll need to
+prefix the labels with a ``?``.
+  
 This is not a compulsory directive.
 
 

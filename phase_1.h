@@ -18,6 +18,7 @@ int localize_path(char *path);
 int verify_name_length(char *name);
 int is_reserved_definition(char *t);
 int strcaselesscmp(char *s1, char *s2);
+int process_label_inside_macro(int add_namespace, char *buffer, int sizeof_buffer);
 
 void generate_label(char *header, char *footer);
 void reset_label_stack(void);
@@ -32,6 +33,8 @@ __attribute__((format(printf, 2, 3)))
 void print_error(int type, char *error, ...);
 
 void next_line(void);
+void use_dir(char *directory, char *path);
+void get_dir(char *full_path, char *tmp);
 
 int add_namespace_to_string(char *s, int sizeof_s, char *type);
 int macro_get(char *name, int add_namespace, struct macro_static **macro_out);

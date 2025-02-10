@@ -33,7 +33,7 @@ extern struct macro_runtime *g_macro_stack;
 extern double g_parsed_double;
 extern unsigned char g_asciitable[256];
 extern int g_operand_hint, g_operand_hint_type, g_can_calculate_a_minus_b, g_expect_calculations, g_asciitable_defined;
-extern int g_is_file_isolated_counter, g_force_add_namespace;
+extern int g_is_file_isolated_counter, g_force_add_namespace, g_bank, g_base, g_current_slot;
 extern struct slot g_slots[256];
 extern struct section_def *g_sections_first;
 
@@ -479,7 +479,7 @@ static void _debug_print_stack(int line_number, int stack_id, struct stack_item 
       else if (value == SI_OP_POW)
         print_text(YES, "pow(a,b)");
       else if (value == SI_OP_CLAMP)
-        print_text(YES, "pow(v,min,max)");
+        print_text(YES, "clamp(v,min,max)");
       else if (value == SI_OP_SIGN)
         print_text(YES, "sign(a)");
       else {
@@ -773,6 +773,156 @@ static int _parse_function_random(char *in, int *result, int *parsed_chars) {
   *result = (genrand_int32() % (max-min+1)) + min;
 
   return SUCCEEDED;
+}
+
+
+static int _parse_function_is(char *in, int *result, int *parsed_chars) {
+
+  int res, old_expect = g_expect_calculations, source_index_original = g_source_index, source_index_backup;
+  
+  /* NOTE! we assume that 'in' is actually '&g_buffer[xyz]', so
+     let's update g_source_index for input_number() */
+
+  g_source_index = (int)(in - g_buffer);
+  source_index_backup = g_source_index;
+
+  g_expect_calculations = NO;
+  res = input_number();
+  g_expect_calculations = old_expect;
+
+  if (res != INPUT_NUMBER_STRING) {
+    print_error(ERROR_NUM, "is() requires a quoted string.\n");
+    return FAILED;
+  }
+  
+  if (g_buffer[g_source_index] != ')') {
+    print_error(ERROR_NUM, "Malformed \"is(?)\" detected!\n");
+    return FAILED;
+  }
+
+  /* skip ')' */
+  g_source_index++;
+
+  /* count the parsed chars */
+  *parsed_chars = (int)(g_source_index - source_index_backup);
+
+  /* return g_source_index */
+  g_source_index = source_index_original;
+
+  if (strcaselesscmp(g_label, "insidesection") == 0) {
+    if (g_section_status == ON)
+      *result = 1;
+    else
+      *result = 0;
+  }
+  else {
+    print_error(ERROR_NUM, "Unknown string \"%s\" to \"is(?)\"!\n", g_label);
+    return FAILED;
+  }
+  
+  return SUCCEEDED;
+}
+
+
+static int _parse_function_get(char *in, struct stack_item *si, int *parsed_chars) {
+
+  int res, old_expect = g_expect_calculations, source_index_original = g_source_index, source_index_backup;
+  
+  /* NOTE! we assume that 'in' is actually '&g_buffer[xyz]', so
+     let's update g_source_index for input_number() */
+
+  g_source_index = (int)(in - g_buffer);
+  source_index_backup = g_source_index;
+
+  g_expect_calculations = NO;
+  res = input_number();
+  g_expect_calculations = old_expect;
+
+  if (res != INPUT_NUMBER_STRING) {
+    print_error(ERROR_NUM, "get() requires a quoted string.\n");
+    return FAILED;
+  }
+  
+  if (g_buffer[g_source_index] != ')') {
+    print_error(ERROR_NUM, "Malformed \"get(?)\" detected!\n");
+    return FAILED;
+  }
+
+  /* skip ')' */
+  g_source_index++;
+
+  /* count the parsed chars */
+  *parsed_chars = (int)(g_source_index - source_index_backup);
+
+  /* return g_source_index */
+  g_source_index = source_index_original;
+
+  if (strcaselesscmpn(g_label, "section.", 8) == 0) {
+    if (g_section_status == OFF) {
+      print_error(ERROR_NUM, "No .SECTION is open!\n");
+      return FAILED;
+    }
+  }
+
+  si->sign = SI_SIGN_POSITIVE;
+  si->type = STACK_ITEM_TYPE_VALUE;
+
+  if (strcaselesscmp(g_label, "section.priority") == 0) {
+    si->value = g_sec_tmp->priority;
+    return SUCCEEDED;
+  }
+  else if (strcaselesscmp(g_label, "section.offset") == 0) {
+    si->value = g_sec_tmp->offset;
+    return SUCCEEDED;
+  }
+  else if (strcaselesscmp(g_label, "section.alignment") == 0) {
+    si->value = g_sec_tmp->alignment;
+    return SUCCEEDED;
+  }
+  
+  si->type = STACK_ITEM_TYPE_STRING;
+
+  if (strcaselesscmp(g_label, "section.name") == 0) {
+    strcpy(si->string, g_sec_tmp->name);
+    return SUCCEEDED;
+  }
+  else if (strcaselesscmp(g_label, "section.type") == 0) {
+    if (g_sec_tmp->status == SECTION_STATUS_FREE)
+      strcpy(si->string, "FREE");
+    else if (g_sec_tmp->status == SECTION_STATUS_FORCE)
+      strcpy(si->string, "FORCE");
+    else if (g_sec_tmp->status == SECTION_STATUS_OVERWRITE)
+      strcpy(si->string, "OVERWRITE");
+    else if (g_sec_tmp->status == SECTION_STATUS_HEADER)
+      strcpy(si->string, "HEADER");
+    else if (g_sec_tmp->status == SECTION_STATUS_SEMIFREE)
+      strcpy(si->string, "SEMIFREE");
+    else if (g_sec_tmp->status == SECTION_STATUS_ABSOLUTE)
+      strcpy(si->string, "ABSOLUTE");
+    else if (g_sec_tmp->status == SECTION_STATUS_RAM_FREE)
+      strcpy(si->string, "RAM_FREE");
+    else if (g_sec_tmp->status == SECTION_STATUS_SUPERFREE)
+      strcpy(si->string, "SUPERFREE");
+    else if (g_sec_tmp->status == SECTION_STATUS_SEMISUBFREE)
+      strcpy(si->string, "SEMISUBFREE");
+    else if (g_sec_tmp->status == SECTION_STATUS_RAM_FORCE)
+      strcpy(si->string, "RAM_FORCE");
+    else if (g_sec_tmp->status == SECTION_STATUS_RAM_SEMIFREE)
+      strcpy(si->string, "RAM_SEMIFREE");
+    else if (g_sec_tmp->status == SECTION_STATUS_RAM_SEMISUBFREE)
+      strcpy(si->string, "RAM_SEMISUBFREE");
+    else if (g_sec_tmp->status == SECTION_STATUS_SEMISUPERFREE)
+      strcpy(si->string, "SEMISUPERFREE");
+    else {
+      print_error(ERROR_NUM, "Undefined .SECTION type %d -> please send a bug report!\n", g_sec_tmp->status);
+      return FAILED;
+    }
+
+    return SUCCEEDED;
+  }
+
+  print_error(ERROR_NUM, "Unknown string \"%s\" to \"get(?)\"!\n", g_label);
+  return FAILED;
 }
 
 
@@ -1285,6 +1435,94 @@ static int _parse_function_math3_base(char **in, struct stack_item *si, int *q, 
   }
   
   return SUCCEEDED;
+}
+
+
+static struct data_stream_item *s_dsp_parent_labels[10];
+static struct map_t *s_dsp_labels_map = NULL;
+
+
+static struct data_stream_item *_data_stream_parser_find_label(char *label, int file_name_id, int line_number) {
+
+  char mangled_label[MAX_NAME_LENGTH+1];
+  struct data_stream_item *dSI;
+
+  if (s_dsp_labels_map == NULL)
+    return NULL;
+
+  strcpy(mangled_label, label);
+  
+  if (is_label_anonymous(label) == NO) {
+    /* if the label has '@' at the start, mangle the label name to get its full form */
+    int n = 0;
+
+    while (n < 10 && label[n] == '@')
+      n++;
+    n--;
+
+    if (n >= 0) {
+      if (s_dsp_parent_labels[n] == NULL) {
+        print_text(NO, "_DATA_STREAM_PARSER_FIND_LABEL: Parent of label \"%s\" is missing! Please submit a bug report!\n", label);
+        return NULL;
+      }
+      if (mangle_label(mangled_label, s_dsp_parent_labels[n]->label, n, MAX_NAME_LENGTH, file_name_id, line_number) == FAILED)
+        return NULL;
+    }
+  }
+
+  hashmap_get(s_dsp_labels_map, mangled_label, (void *)&dSI);
+
+  return dSI;
+}
+
+
+static int _get_bank_base_slot(struct stack_item *si, int bank, int base, int slot) {
+
+  struct data_stream_item *dSI;
+  
+  if (data_stream_parser_parse() == FAILED)
+    return FAILED;
+
+  dSI = _data_stream_parser_find_label(si->string, s_dsp_file_name_id, s_dsp_line_number);
+  if (dSI != NULL) {
+    int result = 0;
+
+    if (dSI->section_id >= 0) {
+      struct section_def *section = g_sections_first;
+
+      while (section != NULL) {
+        if (section->id == dSI->section_id)
+          break;
+        section = section->next;
+      }
+
+      if (section != NULL) {
+        if (bank == YES)
+          result += section->bank;
+        if (base == YES && section->base > 0)
+          result += section->base;
+        if (slot == YES)
+          result += section->slot;
+      }
+    }
+    else {
+      if (bank == YES)
+        result += dSI->bank;
+      if (base == YES && dSI->base > 0)
+        result += dSI->base;
+      if (slot == YES)
+        result += dSI->slot;
+    }
+    
+    si->type = STACK_ITEM_TYPE_VALUE;
+    si->value = result;
+    si->sign = SI_SIGN_POSITIVE;
+
+    return SUCCEEDED;
+  }
+  
+  print_error(ERROR_STC, "Cannot find label \"%s\"!\n", si->string);
+  return FAILED;
 }
 
 
@@ -1893,10 +2131,19 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
       
       si[q].string[k] = 0;
       si[q].type = STACK_ITEM_TYPE_STRING;
-      q++;
 
       if (process_string_for_special_characters(si[q].string, NULL) == FAILED)
         return FAILED;
+
+      /* .length? */
+      if (*in == '.' && toupper((int)in[1]) == 'L' && toupper((int)in[2]) == 'E' && toupper((int)in[3]) == 'N' &&
+          toupper((int)in[4]) == 'G' && toupper((int)in[5]) == 'T' && toupper((int)in[6]) == 'H') {
+        in += 7;
+        si[q].value = (int)strlen(si[q].string);
+        si[q].type = STACK_ITEM_TYPE_VALUE;
+      }
+          
+      q++;
     }
     else {
       /* it must be a label! */
@@ -2101,24 +2348,127 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
           is_already_processed_function = YES;
           break;
         }
-        else if (k == 8 && strcaselesscmpn(si[q].string, "bankbyte(", 9) == 0) {
-          int enable_label_address_conversion = g_dsp_enable_label_address_conversion;
+        else if (k == 3 && strcaselesscmpn(si[q].string, "get(", 4) == 0) {
+          int parsed_chars = 0;
           
-          g_dsp_enable_label_address_conversion = NO;
-          if (_parse_function_math1_base(&in, si, &q, "bankbyte(a)", SI_OP_BANK_BYTE) == FAILED)
+          if (_parse_function_get(in, &si[q], &parsed_chars) == FAILED)
             return FAILED;
-          g_dsp_enable_label_address_conversion = enable_label_address_conversion;
+          in += parsed_chars;
           is_already_processed_function = YES;
           break;
         }
+        else if (k == 8 && strcaselesscmpn(si[q].string, "bankbyte(", 9) == 0) {
+          if (*in == ')') {
+            int bankbyte = g_bank;
+            
+            in++;
+
+            if (g_section_status == ON) {
+              bankbyte = g_sec_tmp->bank;
+              if (g_sec_tmp->base > 0)
+                bankbyte += g_sec_tmp->base;
+            }
+            else {
+              if (g_base > 0)
+                bankbyte += g_base;
+            }
+
+            si[q].type = STACK_ITEM_TYPE_VALUE;
+            si[q].value = bankbyte;
+            si[q].sign = SI_SIGN_POSITIVE;
+
+            is_already_processed_function = YES;
+          }
+          else {
+            int enable_label_address_conversion = g_dsp_enable_label_address_conversion;
+            g_dsp_enable_label_address_conversion = NO;
+            if (_parse_function_math1_base(&in, si, &q, "bankbyte(a)", SI_OP_BANK_BYTE) == FAILED)
+              return FAILED;
+
+            if (g_input_parse_if == YES && si[q].type == STACK_ITEM_TYPE_LABEL) {
+              /* delete the bankbyte() operator */
+              si[q-1].type = STACK_ITEM_TYPE_DELETED;
+              
+              /* we want bankbyte of a label inside .IF -> try to solve it here */
+              if (_get_bank_base_slot(&si[q], YES, YES, NO) == FAILED)
+                return FAILED;
+            }
+
+            g_dsp_enable_label_address_conversion = enable_label_address_conversion;
+            is_already_processed_function = YES;
+          }
+          break;
+        }
+        else if (k == 4 && strcaselesscmpn(si[q].string, "base(", 5) == 0) {
+          if (*in == ')') {
+            in++;
+
+            if (g_section_status == ON)
+              si[q].value = g_sec_tmp->base;
+            else
+              si[q].value = g_base;
+
+            if (si[q].value < 0)
+              si[q].value = 0;
+            
+            si[q].type = STACK_ITEM_TYPE_VALUE;
+            si[q].sign = SI_SIGN_POSITIVE;
+
+            is_already_processed_function = YES;
+
+            break;
+          }
+        }
+        else if (k == 4 && strcaselesscmpn(si[q].string, "slot(", 5) == 0) {
+          if (*in == ')') {
+            in++;
+
+            if (g_section_status == ON)
+              si[q].value = g_sec_tmp->slot;
+            else
+              si[q].value = g_current_slot;
+
+            si[q].type = STACK_ITEM_TYPE_VALUE;
+            si[q].sign = SI_SIGN_POSITIVE;
+
+            is_already_processed_function = YES;
+
+            break;
+          }
+        }
         else if (k == 4 && strcaselesscmpn(si[q].string, "bank(", 5) == 0) {
-          int enable_label_address_conversion = g_dsp_enable_label_address_conversion;
+          if (*in == ')') {
+            in++;
+
+            if (g_section_status == ON)
+              si[q].value = g_sec_tmp->bank;
+            else
+              si[q].value = g_bank;
+            
+            si[q].type = STACK_ITEM_TYPE_VALUE;
+            si[q].sign = SI_SIGN_POSITIVE;
+
+            is_already_processed_function = YES;
+          }
+          else {
+            int enable_label_address_conversion = g_dsp_enable_label_address_conversion;
           
-          g_dsp_enable_label_address_conversion = NO;
-          if (_parse_function_math1_base(&in, si, &q, "bank(a)", SI_OP_BANK) == FAILED)
-            return FAILED;
-          g_dsp_enable_label_address_conversion = enable_label_address_conversion;
-          is_already_processed_function = YES;
+            g_dsp_enable_label_address_conversion = NO;
+            if (_parse_function_math1_base(&in, si, &q, "bank(a)", SI_OP_BANK) == FAILED)
+              return FAILED;
+
+            if (g_input_parse_if == YES && si[q].type == STACK_ITEM_TYPE_LABEL) {
+              /* delete the bank() operator */
+              si[q-1].type = STACK_ITEM_TYPE_DELETED;
+              
+              /* we want bank of a label inside .IF -> try to solve it here */
+              if (_get_bank_base_slot(&si[q], YES, NO, NO) == FAILED)
+                return FAILED;
+            }
+
+            g_dsp_enable_label_address_conversion = enable_label_address_conversion;
+            is_already_processed_function = YES;
+          }
           break;
         }
         else if (k == 6 && strcaselesscmpn(si[q].string, "random(", 7) == 0) {
@@ -2134,6 +2484,15 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
           int parsed_chars = 0;
           
           if (_parse_function_defined(in, &d, &parsed_chars) == FAILED)
+            return FAILED;
+          in += parsed_chars;
+          is_label = NO;
+          break;
+        }
+        else if (k == 2 && strcaselesscmpn(si[q].string, "is(", 3) == 0) {
+          int parsed_chars = 0;
+          
+          if (_parse_function_is(in, &d, &parsed_chars) == FAILED)
             return FAILED;
           in += parsed_chars;
           is_label = NO;
@@ -2251,6 +2610,12 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
         if (from_substitutor == NO && expand_variables_inside_string(si[q].string, sizeof(((struct stack_item *)0)->string), NULL) == FAILED)
           return FAILED;
 
+        if (g_macro_active != 0 && si[q].string[0] == '?') {
+          /* CHILDLABELS .MACRO and local reference! */
+          if (process_label_inside_macro(NO, si[q].string, sizeof(si[q].string)) == FAILED)
+            return FAILED;
+        }
+        
         /* label reference inside a namespaced .MACRO? */
         if (g_is_file_isolated_counter > 0 || g_force_add_namespace == YES) {
           if (add_namespace_to_a_label(si[q].string, sizeof(si[q].string), YES) == FAILED)
@@ -2894,44 +3259,6 @@ static void _remove_can_calculate_deltas_pair(struct stack_item *s) {
 }
 
 
-static struct data_stream_item *s_dsp_parent_labels[10];
-static struct map_t *s_dsp_labels_map = NULL;
-
-
-static struct data_stream_item *_data_stream_parser_find_label(char *label, int file_name_id, int line_number) {
-
-  char mangled_label[MAX_NAME_LENGTH+1];
-  struct data_stream_item *dSI;
-
-  if (s_dsp_labels_map == NULL)
-    return NULL;
-
-  strcpy(mangled_label, label);
-  
-  if (is_label_anonymous(label) == NO) {
-    /* if the label has '@' at the start, mangle the label name to get its full form */
-    int n = 0;
-
-    while (n < 10 && label[n] == '@')
-      n++;
-    n--;
-
-    if (n >= 0) {
-      if (s_dsp_parent_labels[n] == NULL) {
-        print_text(NO, "_DATA_STREAM_PARSER_FIND_LABEL: Parent of label \"%s\" is missing! Please submit a bug report!\n", label);
-        return NULL;
-      }
-      if (mangle_label(mangled_label, s_dsp_parent_labels[n]->label, n, MAX_NAME_LENGTH, file_name_id, line_number) == FAILED)
-        return NULL;
-    }
-  }
-
-  hashmap_get(s_dsp_labels_map, mangled_label, (void *)&dSI);
-
-  return dSI;
-}
-
-
 static int _resolve_string(struct stack_item *s, int *cannot_resolve) {
 
   struct definition *tmp_def;
@@ -2982,9 +3309,52 @@ static int _resolve_string(struct stack_item *s, int *cannot_resolve) {
       s->value = tmp_def->value;
     }
     else if (tmp_def->type == DEFINITION_TYPE_ADDRESS_LABEL) {
-      /* wla cannot resolve address labels (unless outside a section) -> only wlalink can do that */
-      *cannot_resolve = 1;
-      strcpy(s->string, tmp_def->string);
+      /* read the labels and their addresses from the internal data stream */
+      struct data_stream_item *dSI = NULL;
+
+      if (data_stream_parser_parse() == FAILED)
+        return FAILED;
+
+      dSI = _data_stream_parser_find_label(tmp_def->string, s_dsp_file_name_id, s_dsp_line_number);
+      if (dSI != NULL) {
+        if (dSI->section_id < 0) {
+          /* a label outside .SECTIONs */
+
+          if (_remember_converted_stack_item(s) == FAILED)
+            return FAILED;
+          
+          s->type = STACK_ITEM_TYPE_VALUE;
+          s->value = g_slots[dSI->slot].address + dSI->address;
+        }
+        else {
+          /* a label inside a .SECTION - is the .SECTION of type FORCE/OVERWRITE? */
+          struct section_def *section = g_sections_first;
+          
+          while (section != NULL) {
+            if (section->id == dSI->section_id)
+              break;
+            section = section->next;
+          }
+
+          if (section != NULL && (section->status == SECTION_STATUS_FORCE || section->status == SECTION_STATUS_OVERWRITE)) {
+            if (_remember_converted_stack_item(s) == FAILED)
+              return FAILED;
+            
+            s->type = STACK_ITEM_TYPE_VALUE;
+            s->value = g_slots[section->slot].address + section->address;
+          }
+          else {
+            /* wla cannot resolve freely floating address labels -> only wlalink can do that */
+            *cannot_resolve = 1;
+            strcpy(s->string, tmp_def->string);
+          }
+        }
+      }
+      else {
+        /* wla cannot resolve freely floating address labels -> only wlalink can do that */
+        *cannot_resolve = 1;
+        strcpy(s->string, tmp_def->string);
+      }
     }
     else {
       s->type = STACK_ITEM_TYPE_VALUE;
@@ -4306,7 +4676,7 @@ extern FILE *g_file_out_ptr;
 
 /* internal variables for data_stream_parser_parse(), saved here so that the function can continue next time it's called from
    where it left off previous call */
-static int s_dsp_last_data_stream_position = 0, s_dsp_has_data_stream_parser_been_initialized = NO;
+static int s_dsp_last_data_stream_position = 0, s_dsp_has_data_stream_parser_been_initialized = NO, s_dsp_base = -1;
 static int s_dsp_add = 0, s_dsp_add_old = 0, s_dsp_section_id = -1, s_dsp_bits_current = 0, s_dsp_inz;
 static int s_dstruct_start, s_dstruct_item_offset, s_dstruct_item_size, s_dsp_bank = 0, s_dsp_slot = 0;
 static struct section_def *s_dsp_s = NULL;
@@ -4322,6 +4692,18 @@ struct section_def *data_stream_parser_get_current_section(void) {
 int data_stream_parser_get_current_address(void) {
 
   return s_dsp_add;
+}
+
+
+int data_stream_parser_get_current_bank(void) {
+
+  return s_dsp_bank;
+}
+
+
+int data_stream_parser_get_current_base(void) {
+
+  return s_dsp_base;
 }
 
 
@@ -4543,7 +4925,7 @@ int data_stream_parser_parse(void) {
       continue;
         
     case 'b':
-      err = fscanf(g_file_out_ptr, "%d ", &temp_1);
+      err = fscanf(g_file_out_ptr, "%d ", &s_dsp_base);
       if (err < 1)
         return _print_fscanf_error_accessing_internal_data_stream(s_dsp_file_name_id, s_dsp_line_number, c, err);
       continue;
@@ -4770,6 +5152,7 @@ int data_stream_parser_parse(void) {
           dSI->section_id = s_dsp_section_id;
           dSI->bank = s_dsp_bank;
           dSI->slot = s_dsp_slot;
+          dSI->base = s_dsp_base;
 
           /* store the entry in a hashmap for quick discovery */
           if (hashmap_put(s_dsp_labels_map, dSI->label, dSI) == MAP_OMEM) {

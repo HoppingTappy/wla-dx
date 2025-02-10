@@ -3,12 +3,26 @@
 1... WLA GB-Z80/Z80/Z80N/6502/65C02/65CE02/65816/68000/6800/6801/6809/8008/8080/HUC6280/SPC-700/SuperFX History
 ---------------------------------------------------------------------------------------------------------------
 
-v10.7 (09-Apr-2024) [ALL] Prefixed by a hashtag didn't propagate though nested .MACRO
+v10.7 (03-Feb-2025) [ALL] Prefixed by a hashtag didn't propagate though nested .MACRO
                       calls.
                     [ALL] Listfile creation for library files should now work.
                     [ALL] If an object file contained only .SECTIONs in ROM
                       bank X then ROM bank X's allocation info wasn't printed with
                       -v switch.
+                    [ALL] .FOPEN uses now directories given with -I flag.
+                    [ALL] BANKS for .SECTION can now be a string definition.
+                    [ALL] Quoted string arguments can be used in .MACROs to replace
+                      e.g., registers on lines with instructions.
+                    [ALL] A label outside .SECTIONs or inside FORCE or OVERWRITE
+                      .SECTION given to a .MACRO can now be used in calculations as
+                      long it has been defined earlier lexically.
+                    [ALL] Added parameterless versions of bankbyte(), base(), slot()
+	              and bank(). bankbyte(label) and bank(label) can be used in .IFs.
+                    [ALL] Added built-in functions is() and get().
+                    [ALL] Added LATESTDIR and RELATIVEDIR to .INCLUDE and .INCBIN.
+                    [68k] Added alias SP for register a7.
+                    [68k] BCLR, BSET and BTST used wrong range [1, 8] / [1, 32] for
+                      bits, fixed to [0, 7] / [0, 31].
 
 v10.6 (19-Nov-2023) [ALL] Conditions (e.g., "(A > 1 || B < 3)") can now be used
                       everywhere, outside .IFs.
@@ -1526,10 +1540,11 @@ v1.0 (10-Jul-2000) The first public release.
 4... WLALINK History
 ------------------------------------------------------------------------------
 
-v5.22 (09-Apr-2024) When calculating _sizeof_* for lables we now take unused
+v5.22 (21-Sep-2024) When calculating _sizeof_* for lables we now take unused
                       output bytes into account.
                     Appended .RAMSECTIONs were still affecting the original
                       RAM bank in -v listing.
+                    Use -sE to write EQU symbol file (e.g., for openMSX)
 
 v5.21 (19-Nov-2023) WLALINK writes now version 3 WLA symbol files.
                     Symbol files created with -S contain now [sections] and
