@@ -23,7 +23,7 @@
 
 extern int g_input_number_error_msg, g_bankheader_status, g_input_float_mode, g_global_label_hint, g_is_data_stream_parser_enabled;
 extern int g_source_index, g_source_file_size, g_parsed_int, g_macro_active, g_string_size, g_section_status, g_parse_floats;
-extern char *g_buffer, *g_tmp, g_expanded_macro_string[256], g_label[MAX_NAME_LENGTH + 1];
+extern char *g_buffer, *g_tmp, g_expanded_macro_string[256], g_label[MAX_NAME_LENGTH + 1], g_latest_label[MAX_NAME_LENGTH + 1];
 extern struct map_t *g_defines_map;
 extern struct active_file_info *g_active_file_info_first, *g_active_file_info_last, *g_active_file_info_tmp;
 extern struct macro_runtime *g_macro_runtime_current;
@@ -35,7 +35,7 @@ extern unsigned char g_asciitable[256];
 extern int g_operand_hint, g_operand_hint_type, g_can_calculate_a_minus_b, g_expect_calculations, g_asciitable_defined;
 extern int g_is_file_isolated_counter, g_force_add_namespace, g_bank, g_base, g_current_slot;
 extern struct slot g_slots[256];
-extern struct section_def *g_sections_first;
+extern struct section_def *g_sections_first, *g_sections_last;
 
 int g_latest_stack = 0, g_last_stack_id = 0, g_resolve_stack_calculations = YES, s_stack_calculations_max = 0;
 int g_parsing_function_body = NO, g_fail_quetly_on_non_found_functions = NO, g_input_parse_if = NO, g_dsp_enable_label_address_conversion = YES;
@@ -868,60 +868,77 @@ static int _parse_function_get(char *in, struct stack_item *si, int *parsed_char
   si->type = STACK_ITEM_TYPE_VALUE;
 
   if (strcaselesscmp(g_label, "section.priority") == 0) {
-    si->value = g_sec_tmp->priority;
+    si->value = g_sections_last->priority;
     return SUCCEEDED;
   }
   else if (strcaselesscmp(g_label, "section.offset") == 0) {
-    si->value = g_sec_tmp->offset;
+    si->value = g_sections_last->offset;
     return SUCCEEDED;
   }
   else if (strcaselesscmp(g_label, "section.alignment") == 0) {
-    si->value = g_sec_tmp->alignment;
+    si->value = g_sections_last->alignment;
     return SUCCEEDED;
   }
-  
+
   si->type = STACK_ITEM_TYPE_STRING;
 
   if (strcaselesscmp(g_label, "section.name") == 0) {
-    strcpy(si->string, g_sec_tmp->name);
+    if (g_section_status == OFF) {
+      print_error(ERROR_NUM, "No .SECTION is open!\n");
+      return FAILED;
+    }
+    strcpy(si->string, g_sections_last->name);
     return SUCCEEDED;
   }
   else if (strcaselesscmp(g_label, "section.type") == 0) {
-    if (g_sec_tmp->status == SECTION_STATUS_FREE)
+    if (g_section_status == OFF) {
+      print_error(ERROR_NUM, "No .SECTION is open!\n");
+      return FAILED;
+    }
+    
+    if (g_sections_last->status == SECTION_STATUS_FREE)
       strcpy(si->string, "FREE");
-    else if (g_sec_tmp->status == SECTION_STATUS_FORCE)
+    else if (g_sections_last->status == SECTION_STATUS_FORCE)
       strcpy(si->string, "FORCE");
-    else if (g_sec_tmp->status == SECTION_STATUS_OVERWRITE)
+    else if (g_sections_last->status == SECTION_STATUS_OVERWRITE)
       strcpy(si->string, "OVERWRITE");
-    else if (g_sec_tmp->status == SECTION_STATUS_HEADER)
+    else if (g_sections_last->status == SECTION_STATUS_HEADER)
       strcpy(si->string, "HEADER");
-    else if (g_sec_tmp->status == SECTION_STATUS_SEMIFREE)
+    else if (g_sections_last->status == SECTION_STATUS_SEMIFREE)
       strcpy(si->string, "SEMIFREE");
-    else if (g_sec_tmp->status == SECTION_STATUS_ABSOLUTE)
+    else if (g_sections_last->status == SECTION_STATUS_ABSOLUTE)
       strcpy(si->string, "ABSOLUTE");
-    else if (g_sec_tmp->status == SECTION_STATUS_RAM_FREE)
+    else if (g_sections_last->status == SECTION_STATUS_RAM_FREE)
       strcpy(si->string, "RAM_FREE");
-    else if (g_sec_tmp->status == SECTION_STATUS_SUPERFREE)
+    else if (g_sections_last->status == SECTION_STATUS_SUPERFREE)
       strcpy(si->string, "SUPERFREE");
-    else if (g_sec_tmp->status == SECTION_STATUS_SEMISUBFREE)
+    else if (g_sections_last->status == SECTION_STATUS_SEMISUBFREE)
       strcpy(si->string, "SEMISUBFREE");
-    else if (g_sec_tmp->status == SECTION_STATUS_RAM_FORCE)
+    else if (g_sections_last->status == SECTION_STATUS_RAM_FORCE)
       strcpy(si->string, "RAM_FORCE");
-    else if (g_sec_tmp->status == SECTION_STATUS_RAM_SEMIFREE)
+    else if (g_sections_last->status == SECTION_STATUS_RAM_SEMIFREE)
       strcpy(si->string, "RAM_SEMIFREE");
-    else if (g_sec_tmp->status == SECTION_STATUS_RAM_SEMISUBFREE)
+    else if (g_sections_last->status == SECTION_STATUS_RAM_SEMISUBFREE)
       strcpy(si->string, "RAM_SEMISUBFREE");
-    else if (g_sec_tmp->status == SECTION_STATUS_SEMISUPERFREE)
+    else if (g_sections_last->status == SECTION_STATUS_SEMISUPERFREE)
       strcpy(si->string, "SEMISUPERFREE");
     else {
-      print_error(ERROR_NUM, "Undefined .SECTION type %d -> please send a bug report!\n", g_sec_tmp->status);
+      print_error(ERROR_NUM, "Undefined .SECTION type %d -> please send a bug report!\n", g_sections_last->status);
       return FAILED;
     }
 
     return SUCCEEDED;
   }
 
+  si->type = STACK_ITEM_TYPE_LABEL;
+  
+  if (strcaselesscmp(g_label, "label.latest") == 0) {
+    strcpy(si->string, g_latest_label);
+    return SUCCEEDED;
+  }
+  
   print_error(ERROR_NUM, "Unknown string \"%s\" to \"get(?)\"!\n", g_label);
+
   return FAILED;
 }
 
@@ -1014,6 +1031,81 @@ static int _parse_function_exists(char *in, int *result, int *parsed_chars) {
 
     fclose(f);
   }
+  
+  return SUCCEEDED;
+}
+
+
+static int _parse_function_substring(char *in, struct stack_item *si, int *parsed_chars) {
+
+  int i, j, res, old_expect = g_expect_calculations, source_index_original = g_source_index, source_index_backup, index, length;
+  char tmp[MAX_NAME_LENGTH + 1];
+  
+  /* NOTE! we assume that 'in' is actually '&g_buffer[xyz]', so
+     let's update g_source_index for input_number() */
+
+  g_source_index = (int)(in - g_buffer);
+  source_index_backup = g_source_index;
+
+  /* string */
+  g_expect_calculations = NO;
+  res = input_number();
+
+  if (res != INPUT_NUMBER_ADDRESS_LABEL && res != INPUT_NUMBER_STRING) {
+    print_error(ERROR_NUM, "substring() requires a string to operate on.\n");
+    return FAILED;
+  }
+
+  strcpy(tmp, g_label);
+
+  /* index */
+  g_expect_calculations = YES;
+  res = input_number();
+  
+  if (res != SUCCEEDED) {
+    print_error(ERROR_NUM, "substring() requires index that can be solved right here.\n");
+    return FAILED;
+  }
+
+  index = g_parsed_int;
+  
+  /* length */
+  res = input_number();
+  g_expect_calculations = old_expect;
+
+  if (res != SUCCEEDED) {
+    print_error(ERROR_NUM, "substring() requires length that can be solved right here.\n");
+    return FAILED;
+  }
+
+  length = g_parsed_int;
+  
+  if (g_buffer[g_source_index] != ')') {
+    print_error(ERROR_NUM, "Malformed \"substring(?)\" detected!\n");
+    return FAILED;
+  }
+
+  /* skip ')' */
+  g_source_index++;
+
+  /* count the parsed chars */
+  *parsed_chars = (int)(g_source_index - source_index_backup);
+
+  /* return g_source_index */
+  g_source_index = source_index_original;
+
+  /* perform substring() */
+  si->sign = SI_SIGN_POSITIVE;
+  si->type = STACK_ITEM_TYPE_STRING;
+
+  for (j = 0, i = index; j < length; i++, j++) {
+    if (i < 0 || i >= (int)strlen(tmp)) {
+      print_error(ERROR_NUM, "Index %d is outside string \"%s\"!\n", i, tmp);
+      return FAILED;
+    }
+    si->string[j] = tmp[i];
+  }
+  si->string[j] = 0;
   
   return SUCCEEDED;
 }
@@ -1528,7 +1620,7 @@ static int _get_bank_base_slot(struct stack_item *si, int bank, int base, int sl
 
 static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned char from_substitutor, struct stack_item *si, struct stack_item *ta) {
 
-  int q = 0, b = 0, d, k, n, curly_braces = 0, got_label = NO, can_skip_newline = NO;
+  int q = 0, b = 0, d, k, n, curly_braces = 0, got_label = NO, got_get_label = NO, can_skip_newline = NO;
   unsigned char e, op[MAX_STACK_CALCULATOR_ITEMS], sign[MAX_STACK_CALCULATOR_ITEMS];
   double dou = 0.0, dom;
   char *in_original = in;
@@ -1809,7 +1901,7 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
       can_skip_newline = YES;
       /* was previous token ')'? */
       if (q > 0 && si[q-1].type == STACK_ITEM_TYPE_OPERATOR && si[q-1].value == SI_OP_RIGHT)
-        break;      
+        break;
       q++;
       b++;
       in++;
@@ -2354,7 +2446,14 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
           if (_parse_function_get(in, &si[q], &parsed_chars) == FAILED)
             return FAILED;
           in += parsed_chars;
-          is_already_processed_function = YES;
+
+          if (si[q].type == STACK_ITEM_TYPE_LABEL) {
+            k = (int)strlen(si[q].string);
+            is_label = YES;
+            got_get_label = YES;
+          }
+          else
+            is_already_processed_function = YES;
           break;
         }
         else if (k == 8 && strcaselesscmpn(si[q].string, "bankbyte(", 9) == 0) {
@@ -2471,6 +2570,45 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
           }
           break;
         }
+        else if ((k == 4 && strcaselesscmpn(si[q].string, "orga(", 5) == 0) ||
+                 (k == 3 && strcaselesscmpn(si[q].string, "org(", 4) == 0)) {
+          if (*in == ')') {
+            struct section_def *section;
+
+            in++;
+
+            if (data_stream_parser_parse() == FAILED)
+              return FAILED;
+
+            section = data_stream_parser_get_current_section();
+
+            /* check that we are not in a place where ORG/ORGA cannot be determined */
+            if (section != NULL) {
+              if (section->status != SECTION_STATUS_FORCE &&
+                  section->status != SECTION_STATUS_OVERWRITE) {
+                print_error(ERROR_NUM, "ORG/ORGA at this point is known only outside .SECTIONs or inside FORCE and OVERWRITE .SECTIONs!\n");
+                return FAILED;
+              }
+            }
+    
+            si[q].value = data_stream_parser_get_current_address();
+
+            if (k == 4) {
+              /* orga() */
+              if (section != NULL)
+                si[q].value += g_slots[section->slot].address;
+              else
+                si[q].value += g_slots[g_current_slot].address;
+            }
+
+            si[q].type = STACK_ITEM_TYPE_VALUE;
+            si[q].sign = SI_SIGN_POSITIVE;
+
+            is_already_processed_function = YES;
+
+            break;
+          }
+        }
         else if (k == 6 && strcaselesscmpn(si[q].string, "random(", 7) == 0) {
           int parsed_chars = 0;
           
@@ -2504,10 +2642,20 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
           if (_parse_function_exists(in, &d, &parsed_chars) == FAILED)
             return FAILED;
           in += parsed_chars;
-          is_label = NO;          
+          is_label = NO;
           break;
         }
+        else if (k == 9 && strcaselesscmpn(si[q].string, "substring(", 10) == 0) {
+          int parsed_chars = 0;
 
+          if (_parse_function_substring(in, &si[q], &parsed_chars) == FAILED)
+            return FAILED;
+          in += parsed_chars;
+          is_label = NO;
+          is_already_processed_function = YES;
+          break;
+        }
+        
         if (e == '(') {
           /* are we calling a user created function? */
           int found_function = NO, res, parsed_chars = 0;
@@ -2676,6 +2824,7 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
 
       return SUCCEEDED;
     }
+    
     if (from_substitutor == NO) {
       if (si[0].type == STACK_ITEM_TYPE_STACK) {
         /* update the source pointer */
@@ -2685,7 +2834,30 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
 
         return INPUT_NUMBER_STACK;
       }
+      else if (got_get_label == YES && si[0].type == STACK_ITEM_TYPE_LABEL && si[0].sign == SI_SIGN_POSITIVE) {
+        /* update the source pointer */
+        *bytes_parsed += (int)(in - in_original) - 1;
 
+        strcpy(g_label, si[0].string);
+        process_special_labels(g_label);
+        g_string_size = (int)strlen(g_label);
+
+        return STACK_RETURN_LABEL;
+      }
+      else if (si[0].type == STACK_ITEM_TYPE_STRING && si[0].sign == SI_SIGN_POSITIVE) {
+        /* update the source pointer */
+        *bytes_parsed += (int)(in - in_original) - 1;
+
+        strcpy(g_label, si[0].string);
+        process_special_labels(g_label);
+        g_string_size = (int)strlen(g_label);
+
+#if defined(WLA_DEBUG)
+        print_text(NO, "RETURN STRING %s\n", g_label);
+#endif
+        return STACK_RETURN_STRING;
+      }
+  
       return STACK_CALCULATE_DELAY;
     }
   }
@@ -2913,7 +3085,7 @@ static int _stack_calculate(char *in, int *value, int *bytes_parsed, unsigned ch
       }
     }
   }
-
+  
 #if defined(WLA_DEBUG)
   print_text(NO, "INFIX:\n");
   _debug_print_stack(g_active_file_info_last->line_current, -1, si, q, 0, NULL);
