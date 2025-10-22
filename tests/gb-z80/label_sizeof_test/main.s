@@ -26,13 +26,17 @@ SLOT 1 STArT $2000 sIzE $6000
 .ENDME
 
 .ROMBANKMAP
-BANKSTOTAL 2
+BANKSTOTAL 3
 BANKSIZE $2000
 BANKS 1
 BANKSIZE $6000
 BANKS 1
+BANKSIZE $2000
+BANKS 1
 .ENDRO
 
+; @BT linked.gb
+        
         .bank 0 slot 0
         .org 0
 
@@ -62,4 +66,44 @@ start_010F:
 vbi_counter:     db
 player_lives:   db
         .ends
+
+        .bank 2 slot 0
+        .org 0
+
+        .SECTION "More GFX data" KEEP
+
+SRC_SoundEnginesMap:
+        .ds 2048, 1
+SRC_StartMap:
+        .ds 256, 2
+SRC_StartPal:
+        .ds 256, 3
+SRC_StartPic:
+        .ds 256, 4
+
+__start2_END:
+
+        .db "01>"               ; @BT TEST-01 01 START
+        .dw _sizeof_SRC_SoundEnginesMap ; @BT 00 08
+        .dw _sizeof_SRC_StartMap ; @BT 00 01
+        .dw _sizeof_SRC_StartPal ; @BT 00 01
+        .dw _sizeof_SRC_StartPic ; @BT 00 01
+        .db "<01"                ; @BT END
+        
+        .ENDS
+
+        .bank 1 slot 1
+        .org 1024*3
+data1:  .ds 256, $11
+        .org 1024*3+1024        ; Leave a 768 byte hole here
+data2:  .ds 512, 5
+        
+_check: .db "02>"               ; @BT TEST-02 02 START
+        .dw _sizeof_SRC_SoundEnginesMap ; @BT 00 08
+        .dw _sizeof_SRC_StartMap ; @BT 00 01
+        .dw _sizeof_SRC_StartPal ; @BT 00 01
+        .dw _sizeof_SRC_StartPic ; @BT 00 01
+        .dw _sizeof_data1        ; @BT 00 01
+        .dw _sizeof_data2        ; @BT 00 02
+        .db "<02"                ; @BT END
         
