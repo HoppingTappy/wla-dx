@@ -2227,7 +2227,7 @@ int fix_references(void) {
       }
       /* relative 8-bit with a label */
       else if (r->type == REFERENCE_TYPE_RELATIVE_8BIT) {
-        i = (((int)l->address) & 0xFFFF) - r->address - 1;
+        i = (((int)l->address)) - r->address - 1;
         if (i < -128 || i > 127) {
           print_text(NO, "%s: %s:%d: FIX_REFERENCES: Too large distance (%d bytes from $%x to $%x \"%s\") for a relative 8-bit reference.\n",
                   get_file_name(r->file_id), get_source_file_name(r->file_id, r->file_id_source), r->linenumber, i, r->address, (int)l->address, l->name);
@@ -2237,7 +2237,7 @@ int fix_references(void) {
       }
       /* relative 16-bit with a label */
       else if (r->type == REFERENCE_TYPE_RELATIVE_16BIT || r->type == REFERENCE_TYPE_RELATIVE_16BIT_WRAP_AROUND) {
-        i = (((int)l->address) & 0xFFFF) - r->address - 2;
+        i = (((int)l->address)) - r->address - 2;
 
         /* NOTE: on 65ce02 the 16-bit relative references don't use the next
            instruction as the starting point, but one byte before it */
