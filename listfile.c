@@ -394,10 +394,20 @@ int listfile_collect(void) {
       continue;
 
     case 't':
-      err = fscanf(g_file_out_ptr, "%*s ");
-      if (err < 0)
-        return _print_fscanf_error_accessing_internal_data_stream(file_name_id, line_number);
-      continue;
+      {
+        int count;
+        err = fscanf(g_file_out_ptr, "%d ", &count);
+        if (err < 0)
+          return _print_fscanf_error_accessing_internal_data_stream(file_name_id, line_number);
+
+        for (int i = 0; i < count; i++) {
+          err = fscanf(g_file_out_ptr, "%*s ");
+          if (err != 0) {
+            return _print_fscanf_error_accessing_internal_data_stream(file_name_id, line_number);
+          }
+        }
+        continue;
+      }
       
     case 'Y':
     case 'L':
