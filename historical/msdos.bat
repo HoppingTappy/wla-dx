@@ -7,14 +7,6 @@ move wlab.exe ..\binaries
 make clean
 cd ..
 
-cd wlad
-copy makefile.msdos makefile
-make clean
-make
-move wlad.exe ..\binaries
-make clean
-cd ..
-
 copy makefiles\makefile.msdos.gb MAKEFILE
 make clean
 make
@@ -90,6 +82,16 @@ make clean
 copy makefiles\makefile.msdos.huc6280 MAKEFILE
 make
 move w-huc6280.exe binaries\
+make clean
+
+copy makefiles\makefile.msdos.cx4 MAKEFILE
+make
+move w-cx4.exe binaries\
+make clean
+
+copy makefiles\makefile.msdos.sh2 MAKEFILE
+make
+move w-sh2.exe binaries\
 make clean
 
 cd wlalink

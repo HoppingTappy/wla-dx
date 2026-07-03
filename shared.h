@@ -30,7 +30,6 @@
 
 #ifdef PROFILE_FUNCTIONS
 #include <time.h>
-#include <sys/time.h>
 #define PROFILE_MAX_ENTRIES (1024*1024)
 #define PROFILE_GLOBALS() double g_profile_times_ms[PROFILE_MAX_ENTRIES]; \
   char *g_profile_function_names[PROFILE_MAX_ENTRIES]; \
@@ -64,12 +63,12 @@
   } \
 }
 */
-#define PROFILE_VARIABLES() struct timeval time_begin, time_end; \
+#define PROFILE_VARIABLES() clock_t clock_begin, clock_end; \
   static int is_profiling = NO; \
   int output_profiling_data = NO;
-#define PROFILE_START() if (is_profiling == NO) { is_profiling = YES; output_profiling_data = YES; gettimeofday(&time_begin, NULL); }
-#define PROFILE_END(function_name) if (output_profiling_data == YES) { gettimeofday(&time_end, NULL); \
-  g_profile_times_ms[g_profile_entry_id] = (time_end.tv_sec + time_end.tv_usec / 1e6 - time_begin.tv_sec - time_begin.tv_usec / 1e6) * 1000.0; \
+#define PROFILE_START() if (is_profiling == NO) { is_profiling = YES; output_profiling_data = YES; clock_begin = clock(); }
+#define PROFILE_END(function_name) if (output_profiling_data == YES) { clock_end = clock(); \
+  g_profile_times_ms[g_profile_entry_id] = ((double)(clock_end - clock_begin) * 1000.0) / (double)CLOCKS_PER_SEC; \
   if (g_profile_times_ms[g_profile_entry_id] < 0.0) g_profile_times_ms[g_profile_entry_id] = 0.0; \
   g_profile_function_names[g_profile_entry_id++] = function_name; \
   is_profiling = NO; output_profiling_data = NO; }
@@ -107,6 +106,12 @@
 #define FALSE 0
 
 #define NOT_APPLICABLE 2
+
+#define ROMFORMAT_BIN 0
+#define ROMFORMAT_SMD 1
+#define ROMFORMAT_MD  2
+
+#define MD_VECTOR_COUNT 64
 
 #define STACK_ITEM_TYPE_VALUE    0
 #define STACK_ITEM_TYPE_OPERATOR 1
@@ -166,6 +171,7 @@
 #define SI_OP_POW         48
 #define SI_OP_CLAMP       49
 #define SI_OP_SIGN        50
+#define SI_OP_BASE        51
 
 #define SI_SIGN_POSITIVE 0
 #define SI_SIGN_NEGATIVE 1
@@ -179,9 +185,17 @@
 #define STACK_TYPE_BITS    6
 #define STACK_TYPE_9BIT_SHORT 7
 #define STACK_TYPE_16BIT_WRAP_AROUND 8
+#define STACK_TYPE_CX4_10BIT  9
+#define STACK_TYPE_CX4_7BIT  10
+#define STACK_TYPE_ASSERT    11
 
 #define STACK_POSITION_DEFINITION 0
 #define STACK_POSITION_CODE       1
+
+#define ASSERTION_ACTION_WARNING   1
+#define ASSERTION_ACTION_ERROR     2
+#define ASSERTION_ACTION_LDWARNING 3
+#define ASSERTION_ACTION_LDERROR   4
 
 struct namespace_def {
   char name[MAX_NAME_LENGTH + 1];
@@ -219,5 +233,10 @@ struct label_sizeof {
 #define REFERENCE_TYPE_BITS           7
 #define REFERENCE_TYPE_DIRECT_9BIT_SHORT 8
 #define REFERENCE_TYPE_RELATIVE_16BIT_WRAP_AROUND 9
+#define REFERENCE_TYPE_DIRECT_8BIT_MAX_BITS 10
+#define REFERENCE_TYPE_CX4_10BIT      11
+#define REFERENCE_TYPE_SH2_RELATIVE_8BIT 12
+#define REFERENCE_TYPE_SH2_RELATIVE_12BIT 13
+#define REFERENCE_TYPE_SH2_PC_RELATIVE_8BIT 14
 
 #endif /* _SHARED_H */

@@ -17,7 +17,7 @@
 
 /* want to have more operands and operators in a calculation? change this... */
 #if defined(AMIGA) || defined(MSDOS)
-#define MAX_STACK_CALCULATOR_ITEMS 64
+#define MAX_STACK_CALCULATOR_ITEMS 128
 #else
 #define MAX_STACK_CALCULATOR_ITEMS 256
 #endif
@@ -84,6 +84,10 @@
 /* q - 24-bit reference      */
 /* V - 32-bit reference      */
 /* * - 9-bit short reference */
+/* W - n-bit (1-8) reference, low byte of a Cx4 word (1 byte) */
+/* K - 10-bit reference, low + (high|imm[9:8]) of a Cx4 word (2 bytes) */
+/* H - 10-bit stack, low + (high|imm[9:8]) of a Cx4 word (2 bytes) */
+/* a - stack (1 byte), Cx4 low-byte immediate */
 /* S - section               */
 /* s - end of section        */
 /* x - dsb                   */
@@ -105,8 +109,11 @@
 /* J - rept end              */
 /* v - special case ID       */
 /* t - namespace             */
+/* l - SH-2 8-bit pc relative branch displacement (1 byte) */
+/* m - SH-2 12-bit pc relative branch displacement (2 bytes) */
 /* n - 0-7 + label (2 bytes) */
 /* N - 0-7 + stack (2 bytes) */
+/* @ - SH-2 8-bit pc relative load displacement (1 byte) */
 /* + - .bits [bits]: a [value] / b [label] / c [stack] */
 /* . - flip the endianess of next r */
 /* ! - stack (2 bytes) wrap around */
@@ -130,6 +137,34 @@
 #define INSTRUCTION_STRING_LENGTH_MAX 15
 #define ARCH_STR "GB-Z80"
 #define WLA_NAME "gb"
+
+#endif
+
+/**************************************************************/
+/* cx4                                                        */
+/**************************************************************/
+
+#ifdef CX4
+
+/* instruction types */
+
+/* 0  - plain text 16b */
+/* 1  - x             16b, low byte variable */
+/* 2  - @,r           shifted accumulator + register */
+/* 3  - @,x           shifted accumulator + 8-bit operand */
+/* 4  - r             implicit A, register operand */
+/* 5  - u             implicit A, 5-bit immediate */
+/* 6  - r             fixed destination, register source */
+/* 7  - x             fixed destination, 8-bit source */
+/* 8  - g             P destination, GPR source */
+/* 9  - q             10-bit immediate */
+/* A  - h             7-bit immediate */
+/* B  - r             register destination, fixed source */
+/* C  - g             SWAP A,Rn */
+
+#define INSTRUCTION_STRING_LENGTH_MAX 16
+#define ARCH_STR "Cx4"
+#define WLA_NAME "cx4"
 
 #endif
 
@@ -329,6 +364,32 @@
 #endif
 
 /**************************************************************/
+/* ez80                                                       */
+/**************************************************************/
+
+#ifdef EZ80
+
+/* instruction types */
+
+/* 0 - plain text  8b */
+/* 1 - x              */
+/* 2 - ?              */
+/* 3 - plain text 16b */
+/* 4 - x              */
+/* 5 - x          24b */
+/* 6 - ?          16b */
+/* 7 - x x        16b */
+/* 8 - *           8b */
+/* 9 - *          16b */
+/* a - * x        24b */
+
+#define INSTRUCTION_STRING_LENGTH_MAX 18
+#define ARCH_STR "eZ80"
+#define WLA_NAME "ez80"
+
+#endif
+
+/**************************************************************/
 /* 68000                                                      */
 /**************************************************************/
 
@@ -369,9 +430,90 @@
 #define MC68000_MODE_Q   3
 #define MC68000_MODE_M   4
 
+#define MC68000_SIZE_DEFAULT 0xFF
+
 #define INSTRUCTION_STRING_LENGTH_MAX 16
 #define ARCH_STR "MC68000"
 #define WLA_NAME "68000"
+
+#endif
+
+/**************************************************************/
+/* 6800                                                       */
+/**************************************************************/
+
+#ifdef SH2
+
+/* instruction types */
+
+/*  0 - no operands */
+/*  1 - Rn */
+/*  2 - Rm,Rn */
+/*  3 - #imm8,Rn */
+/*  4 - #imm8,R0 */
+/*  5 - #imm8,@(R0,GBR) */
+/*  6 - #imm8 */
+/*  7 - @(disp,PC),Rn */
+/*  8 - @(disp,PC),R0 */
+/*  9 - @(disp,GBR),R0 */
+/* 10 - R0,@(disp,GBR) */
+/* 11 - @(disp,Rm),R0 */
+/* 12 - R0,@(disp,Rn) */
+/* 13 - @(disp,Rm),Rn */
+/* 14 - Rm,@(disp,Rn) */
+/* 15 - @Rm,Rn */
+/* 16 - Rm,@Rn */
+/* 17 - @Rm+,Rn */
+/* 18 - Rm,@-Rn */
+/* 19 - @(R0,Rm),Rn */
+/* 20 - Rm,@(R0,Rn) */
+/* 21 - disp8 branch */
+/* 22 - disp12 branch */
+/* 23 - @Rm branch */
+/* 24 - Rm,control/system register */
+/* 25 - @Rm+,control/system register */
+/* 26 - control/system register,Rn */
+/* 27 - control/system register,@-Rn */
+/* 28 - @Rm+,@Rn+ */
+
+#define SH2_SIZE_DEFAULT 0
+#define SH2_SIZE_B       1
+#define SH2_SIZE_W       2
+#define SH2_SIZE_L       4
+
+#define SH2_MODE_NONE               0
+#define SH2_MODE_RN                 1
+#define SH2_MODE_RM_RN              2
+#define SH2_MODE_IMM8_RN            3
+#define SH2_MODE_IMM8_R0            4
+#define SH2_MODE_IMM8_GBR_R0        5
+#define SH2_MODE_IMM8               6
+#define SH2_MODE_DISP8_PC_RN        7
+#define SH2_MODE_DISP8_PC_R0        8
+#define SH2_MODE_DISP8_GBR_R0       9
+#define SH2_MODE_R0_DISP8_GBR      10
+#define SH2_MODE_DISP4_RM_R0       11
+#define SH2_MODE_R0_DISP4_RN       12
+#define SH2_MODE_DISP4_RM_RN       13
+#define SH2_MODE_RM_DISP4_RN       14
+#define SH2_MODE_AT_RM_RN          15
+#define SH2_MODE_RM_AT_RN          16
+#define SH2_MODE_AT_RM_INC_RN      17
+#define SH2_MODE_RM_AT_DEC_RN      18
+#define SH2_MODE_AT_R0_RM_RN       19
+#define SH2_MODE_RM_AT_R0_RN       20
+#define SH2_MODE_DISP8_BRANCH      21
+#define SH2_MODE_DISP12_BRANCH     22
+#define SH2_MODE_AT_RM_BRANCH      23
+#define SH2_MODE_RM_REG            24
+#define SH2_MODE_AT_RM_INC_REG     25
+#define SH2_MODE_REG_RN            26
+#define SH2_MODE_REG_AT_DEC_RN     27
+#define SH2_MODE_MAC               28
+
+#define INSTRUCTION_STRING_LENGTH_MAX 16
+#define ARCH_STR "SH2"
+#define WLA_NAME "sh2"
 
 #endif
 
@@ -482,7 +624,7 @@
 /* 2 - ?              */
 /* 8 - *           8b */
  
-#define INSTRUCTION_STRING_LENGTH_MAX 6
+#define INSTRUCTION_STRING_LENGTH_MAX 8
 #define ARCH_STR "I8008"
 #define WLA_NAME "8008"
 
@@ -555,10 +697,10 @@ struct instruction {
   unsigned char size;
   unsigned char mode;
 #endif
-#if defined(Z80) || defined(Z80N)
+#if defined(Z80) || defined(Z80N) || defined(EZ80)
   unsigned char hex_x;
 #endif
-#if defined(Z80) || defined(Z80N) || defined(GB) || defined(I8008) || defined(I8080)
+#if defined(Z80) || defined(Z80N) || defined(EZ80) || defined(GB) || defined(I8008) || defined(I8080)
   unsigned char value;
 #endif
 #if defined(MCS6502) || defined(WDC65C02) || defined(CSG65CE02) || defined(HUC6280) || defined(MC6800) || defined(MC6801) || defined(MC6809) || defined(K053248)
@@ -596,6 +738,14 @@ struct definition {
   double value;
   int    type;
   int    size;
+};
+
+struct call_stack_item {
+  char filename[MAX_NAME_LENGTH + 1];
+  char macro_name[MAX_NAME_LENGTH + 1];
+  int line_number;  
+  struct call_stack_item *next;
+  struct call_stack_item *prev;
 };
 
 struct after_section {
@@ -813,10 +963,18 @@ struct stack {
   int bits_position;
   int bits_to_define;
   char is_function_body;
+  char is_assertion_body;
   char is_bankheader_section;
   char is_single_instance;
   char has_been_calculated;
   double value;
+};
+
+struct assertion {
+  struct assertion *next;
+  struct stack *stack;
+  int action;
+  char message[MAX_NAME_LENGTH + 1];
 };
 
 struct stack_item {

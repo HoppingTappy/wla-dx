@@ -45,6 +45,16 @@ extern int g_smsromsize, g_smsromsize_defined;
 extern int g_smsforcechecksum, g_smsforcechecksum_defined, g_smschecksumsize, g_smschecksumsize_defined;
 #endif
 
+#if defined(MCS6502)
+extern unsigned char g_inesheader[16];
+extern int g_inesheader_defined;
+#endif
+
+#if defined(WDC65C02)
+extern unsigned char g_lynxheader[64];
+extern int g_lynxheader_defined;
+#endif
+
 #if defined(W65816)
 extern char g_name[32];
 extern char g_snesid[4];
@@ -70,6 +80,52 @@ extern int g_smdheader_extramemory_type_2, g_smdheader_extramemory_type_3, g_smd
 extern char g_smdheader_modemsupport[13];
 extern char g_smdheader_regionsupport[4];
 extern int g_computesmdchecksum_defined, g_smdheader_defined;
+extern int g_ngheader_defined, g_ngheader_ngh, g_ngheader_systemversion, g_ngheader_promsize, g_ngheader_promsize_defined, g_ngheader_promsize_autopow2;
+extern int g_ngheader_backupramptr, g_ngheader_backupramsize, g_ngheader_eyecatcher, g_ngheader_logobank;
+extern int g_ngheader_jpconfig_type, g_ngheader_jpconfig_value, g_ngheader_usconfig_type, g_ngheader_usconfig_value;
+extern int g_ngheader_euconfig_type, g_ngheader_euconfig_value, g_ngheader_userentry_type, g_ngheader_userentry_value;
+extern int g_ngheader_playerstart_type, g_ngheader_playerstart_value, g_ngheader_demoend_type, g_ngheader_demoend_value;
+extern int g_ngheader_coinsound_type, g_ngheader_coinsound_value, g_ngheader_securitycodeptr_type, g_ngheader_securitycodeptr_value;
+extern int g_ngheader_emit_default_securitycode;
+extern int g_ngheader_cddacmdptr_defined, g_ngheader_cddacmdptr_value;
+extern char *g_ngheader_jpconfig_str, *g_ngheader_usconfig_str, *g_ngheader_euconfig_str;
+extern char *g_ngheader_userentry_str, *g_ngheader_playerstart_str, *g_ngheader_demoend_str;
+extern char *g_ngheader_coinsound_str, *g_ngheader_securitycodeptr_str;
+extern int g_mdvectors_defined, g_mdvectors_default_defined;
+extern int g_mdvectors_defined_slots[MD_VECTOR_COUNT];
+extern int g_mdvectors_type[MD_VECTOR_COUNT], g_mdvectors_value[MD_VECTOR_COUNT];
+extern char *g_mdvectors_str[MD_VECTOR_COUNT];
+extern int g_mdvectors_default_type, g_mdvectors_default_value;
+extern char *g_mdvectors_default_str;
+extern char g_mcdheader_systemtype[17], g_mcdheader_copyright[17], g_mcdheader_titledomestic[49], g_mcdheader_titleoverseas[49];
+extern char g_mcdheader_serialnumber[15], g_mcdheader_devicesupport[17], g_mcdheader_regionsupport[4];
+extern int g_mcdheader_defined, g_mcdheader_ipstart_type, g_mcdheader_ipstart_value;
+extern int g_mcdheader_spstart_type, g_mcdheader_spstart_value, g_mcdheader_vblank_type, g_mcdheader_vblank_value;
+extern int g_mcdheader_hblank_type, g_mcdheader_hblank_value, g_mcdheader_userprocess_type, g_mcdheader_userprocess_value;
+extern char *g_mcdheader_ipstart_str, *g_mcdheader_spstart_str, *g_mcdheader_vblank_str, *g_mcdheader_hblank_str, *g_mcdheader_userprocess_str;
+extern int g_mcdspheader_defined, g_mcdspheader_spentry_type, g_mcdspheader_spentry_value;
+extern int g_mcdspheader_spinit_type, g_mcdspheader_spinit_value, g_mcdspheader_spmain_type, g_mcdspheader_spmain_value;
+extern int g_mcdspheader_spint2_type, g_mcdspheader_spint2_value, g_mcdspheader_spuser_type, g_mcdspheader_spuser_value;
+extern char *g_mcdspheader_spentry_str, *g_mcdspheader_spinit_str, *g_mcdspheader_spmain_str, *g_mcdspheader_spint2_str, *g_mcdspheader_spuser_str;
+
+static unsigned char s_ngheader_security_code[] = {
+  0x76, 0x00, 0x4A, 0x6D, 0x0A, 0x14, 0x66, 0x00,
+  0x00, 0x3C, 0x20, 0x6D, 0x0A, 0x04, 0x3E, 0x2D,
+  0x0A, 0x08, 0x13, 0xC0, 0x00, 0x30, 0x00, 0x01,
+  0x32, 0x10, 0x0C, 0x01, 0x00, 0xFF, 0x67, 0x1A,
+  0x30, 0x28, 0x00, 0x02, 0xB0, 0x2D, 0x0A, 0xCE,
+  0x66, 0x10, 0x30, 0x28, 0x00, 0x04, 0xB0, 0x2D,
+  0x0A, 0xCF, 0x66, 0x06, 0xB2, 0x2D, 0x0A, 0xD0,
+  0x67, 0x08, 0x50, 0x88, 0x51, 0xCF, 0xFF, 0xD4,
+  0x36, 0x07, 0x4E, 0x75, 0x20, 0x6D, 0x0A, 0x04,
+  0x3E, 0x2D, 0x0A, 0x08, 0x32, 0x10, 0xE0, 0x49,
+  0x0C, 0x01, 0x00, 0xFF, 0x67, 0x1A, 0x30, 0x10,
+  0xB0, 0x2D, 0x0A, 0xCE, 0x66, 0x12, 0x30, 0x28,
+  0x00, 0x02, 0xE0, 0x48, 0xB0, 0x2D, 0x0A, 0xCF,
+  0x66, 0x06, 0xB2, 0x2D, 0x0A, 0xD0, 0x67, 0x08,
+  0x58, 0x88, 0x51, 0xCF, 0xFF, 0xD8, 0x36, 0x07,
+  0x4E, 0x75
+};
 #endif
 
 extern FILE *g_file_out_ptr;
@@ -85,9 +141,122 @@ extern struct section_def *g_sections_first, *g_sections_last, *g_sec_tmp, *g_se
 static char s_include_directives_name[] = "INCLUDE_DIRECTIVES:";
 
 
+#if defined(MCS6502)
+
+static int _emit_ines_header_section(void) {
+
+  struct section_def *s;
+  int i;
+
+  s = g_sections_first;
+  while (s != NULL) {
+    if (s->name[0] == 'B' && strcmp(s->name, "BANKHEADER") == 0 && s->bank == 0) {
+      print_text(NO, "PHASE_2: .INESHEADER cannot be used with another BANKHEADER section for bank 0.\n");
+      return FAILED;
+    }
+    s = s->next;
+  }
+
+  if (create_a_new_section_structure() == FAILED)
+    return FAILED;
+
+  strcpy(g_sec_tmp->name, "BANKHEADER");
+  g_sec_tmp->status = SECTION_STATUS_HEADER;
+  g_sec_tmp->address = 0;
+  g_sec_tmp->bank = 0;
+  g_sec_tmp->slot = 0;
+  g_sec_tmp->base = -1;
+  g_sec_tmp->size = 16;
+  g_sec_tmp->data = calloc(sizeof(unsigned char) * 16, 1);
+  if (g_sec_tmp->data == NULL) {
+    print_text(NO, "PHASE_2: Out of memory while creating .INESHEADER BANKHEADER section.\n");
+    return FAILED;
+  }
+
+  for (i = 0; i < 16; i++)
+    g_sec_tmp->data[i] = g_inesheader[i];
+
+  return SUCCEEDED;
+}
+
+#endif
+
+
+#if defined(WDC65C02)
+
+static int _emit_lynx_header_section(void) {
+
+  struct section_def *s;
+  int i;
+
+  s = g_sections_first;
+  while (s != NULL) {
+    if (s->name[0] == 'B' && strcmp(s->name, "BANKHEADER") == 0 && s->bank == 0) {
+      print_text(NO, "PHASE_2: .LYNXHEADER cannot be used with another BANKHEADER section for bank 0.\n");
+      return FAILED;
+    }
+    s = s->next;
+  }
+
+  if (create_a_new_section_structure() == FAILED)
+    return FAILED;
+
+  strcpy(g_sec_tmp->name, "BANKHEADER");
+  g_sec_tmp->status = SECTION_STATUS_HEADER;
+  g_sec_tmp->address = 0;
+  g_sec_tmp->bank = 0;
+  g_sec_tmp->slot = 0;
+  g_sec_tmp->base = -1;
+  g_sec_tmp->size = 64;
+  g_sec_tmp->data = calloc(sizeof(unsigned char) * 64, 1);
+  if (g_sec_tmp->data == NULL) {
+    print_text(NO, "PHASE_2: Out of memory while creating .LYNXHEADER BANKHEADER section.\n");
+    return FAILED;
+  }
+
+  for (i = 0; i < 64; i++)
+    g_sec_tmp->data[i] = g_lynxheader[i];
+
+  return SUCCEEDED;
+}
+
+#endif
+
+
+#if defined(MC68000)
+
+static void _ngheader_emit_pointer(int type, int value, char *string_value) {
+
+  if (type == TYPE_VALUE)
+    fprintf(g_file_out_ptr, "u%d ", value);
+  else if (type == TYPE_STACK_CALCULATION)
+    fprintf(g_file_out_ptr, "U%d ", value);
+  else
+    fprintf(g_file_out_ptr, "V%s ", string_value);
+}
+
+
+static void _ngheader_emit_jump(int type, int value, char *string_value) {
+
+  fprintf(g_file_out_ptr, "d78 d249 ");
+  _ngheader_emit_pointer(type, value, string_value);
+}
+
+
+static void _md_emit_fixed_string(char *s, int length) {
+
+  int i;
+
+  for (i = 0; i < length; i++)
+    fprintf(g_file_out_ptr, "d%d ", (unsigned char)s[i]);
+}
+
+#endif
+
+
 #if defined(W65816)
 
-void _write_snes_cartridge_information(int start) {
+static void _write_snes_cartridge_information(int start) {
 
   int info_bits;
 
@@ -164,6 +333,22 @@ int phase_2(void) {
     print_text(NO, "PHASE_2: %s ROMBANKS/ROMBANKMAP wasn't defined.\n", s_include_directives_name);
     return FAILED;
   }
+
+#if defined(MCS6502)
+  /* INESHEADER */
+  if (g_inesheader_defined == YES) {
+    if (_emit_ines_header_section() == FAILED)
+      return FAILED;
+  }
+#endif
+
+#if defined(WDC65C02)
+  /* LYNXHEADER */
+  if (g_lynxheader_defined == YES) {
+    if (_emit_lynx_header_section() == FAILED)
+      return FAILED;
+  }
+#endif
 
 #if defined(Z80)
   /* SMSTAG */
@@ -385,6 +570,81 @@ int phase_2(void) {
 #endif
 
 #if defined(MC68000)
+  /* MDVECTORS */
+  if (g_mdvectors_defined == YES) {
+    int i, type, value;
+    char *string_value;
+
+    if (create_a_new_section_structure() == FAILED)
+      return FAILED;
+    strcpy(g_sec_tmp->name, "!__WLA_MDVECTORS");
+    g_sec_tmp->status = SECTION_STATUS_ABSOLUTE;
+    fprintf(g_file_out_ptr, "A%d %d k0 ", g_sec_tmp->id, 0);
+
+    for (i = 0; i < MD_VECTOR_COUNT; i++) {
+      if (g_mdvectors_defined_slots[i] == YES) {
+        type = g_mdvectors_type[i];
+        value = g_mdvectors_value[i];
+        string_value = g_mdvectors_str[i];
+      }
+      else if (g_mdvectors_default_defined == YES) {
+        type = g_mdvectors_default_type;
+        value = g_mdvectors_default_value;
+        string_value = g_mdvectors_default_str;
+      }
+      else {
+        type = TYPE_VALUE;
+        value = 0;
+        string_value = NULL;
+      }
+      _ngheader_emit_pointer(type, value, string_value);
+    }
+
+    fprintf(g_file_out_ptr, "s ");
+  }
+
+  /* MCDHEADER */
+  if (g_mcdheader_defined == YES) {
+    int i;
+
+    if (create_a_new_section_structure() == FAILED)
+      return FAILED;
+    strcpy(g_sec_tmp->name, "!__WLA_MCDHEADER");
+    g_sec_tmp->status = SECTION_STATUS_ABSOLUTE;
+    fprintf(g_file_out_ptr, "A%d %d k0 ", g_sec_tmp->id, 0);
+
+    _md_emit_fixed_string(g_mcdheader_systemtype, 16);
+    _md_emit_fixed_string(g_mcdheader_copyright, 16);
+    _md_emit_fixed_string(g_mcdheader_titledomestic, 48);
+    _md_emit_fixed_string(g_mcdheader_titleoverseas, 48);
+    _md_emit_fixed_string(g_mcdheader_serialnumber, 14);
+    _md_emit_fixed_string(g_mcdheader_devicesupport, 16);
+    _md_emit_fixed_string(g_mcdheader_regionsupport, 3);
+    for (i = 0; i < 13; i++)
+      fprintf(g_file_out_ptr, "d%d ", ' ');
+    _ngheader_emit_pointer(g_mcdheader_ipstart_type, g_mcdheader_ipstart_value, g_mcdheader_ipstart_str);
+    _ngheader_emit_pointer(g_mcdheader_spstart_type, g_mcdheader_spstart_value, g_mcdheader_spstart_str);
+    _ngheader_emit_pointer(g_mcdheader_vblank_type, g_mcdheader_vblank_value, g_mcdheader_vblank_str);
+    _ngheader_emit_pointer(g_mcdheader_hblank_type, g_mcdheader_hblank_value, g_mcdheader_hblank_str);
+    _ngheader_emit_pointer(g_mcdheader_userprocess_type, g_mcdheader_userprocess_value, g_mcdheader_userprocess_str);
+    fprintf(g_file_out_ptr, "s ");
+  }
+
+  /* MCDSPHEADER */
+  if (g_mcdspheader_defined == YES) {
+    if (create_a_new_section_structure() == FAILED)
+      return FAILED;
+    strcpy(g_sec_tmp->name, "!__WLA_MCDSPHEADER");
+    g_sec_tmp->status = SECTION_STATUS_ABSOLUTE;
+    fprintf(g_file_out_ptr, "A%d %d k0 ", g_sec_tmp->id, 0);
+    _ngheader_emit_pointer(g_mcdspheader_spentry_type, g_mcdspheader_spentry_value, g_mcdspheader_spentry_str);
+    _ngheader_emit_pointer(g_mcdspheader_spinit_type, g_mcdspheader_spinit_value, g_mcdspheader_spinit_str);
+    _ngheader_emit_pointer(g_mcdspheader_spmain_type, g_mcdspheader_spmain_value, g_mcdspheader_spmain_str);
+    _ngheader_emit_pointer(g_mcdspheader_spint2_type, g_mcdspheader_spint2_value, g_mcdspheader_spint2_str);
+    _ngheader_emit_pointer(g_mcdspheader_spuser_type, g_mcdspheader_spuser_value, g_mcdspheader_spuser_str);
+    fprintf(g_file_out_ptr, "s ");
+  }
+
   /* SMDHEADER */
   if (g_smdheader_defined == YES) {
     int i;
@@ -448,6 +708,80 @@ int phase_2(void) {
     
     fprintf(g_file_out_ptr, "s ");
 
+  }
+
+  /* NGHEADER */
+  if (g_ngheader_defined == YES) {
+    int i;
+    static char s_ngheader_signature[] = "NEO-GEO";
+
+    if (create_a_new_section_structure() == FAILED)
+      return FAILED;
+    strcpy(g_sec_tmp->name, "!__WLA_NGHEADER_PART_1");
+    g_sec_tmp->status = SECTION_STATUS_ABSOLUTE;
+    fprintf(g_file_out_ptr, "A%d %d ", g_sec_tmp->id, 0x100);
+    fprintf(g_file_out_ptr, "k0 ");
+
+    for (i = 0; i < 7; i++)
+      fprintf(g_file_out_ptr, "d%d ", s_ngheader_signature[i]);
+    fprintf(g_file_out_ptr, "d%d ", g_ngheader_systemversion);
+    fprintf(g_file_out_ptr, "y%d ", g_ngheader_ngh);
+    if (g_ngheader_promsize_autopow2 == YES)
+      fprintf(g_file_out_ptr, "d255 d255 d255 d255 ");
+    else
+      fprintf(g_file_out_ptr, "u%d ", g_ngheader_promsize_defined == YES ? g_ngheader_promsize : g_max_address);
+    fprintf(g_file_out_ptr, "u%d ", g_ngheader_backupramptr);
+    fprintf(g_file_out_ptr, "y%d ", g_ngheader_backupramsize);
+    fprintf(g_file_out_ptr, "d%d ", g_ngheader_eyecatcher);
+    fprintf(g_file_out_ptr, "d%d ", g_ngheader_logobank);
+    _ngheader_emit_pointer(g_ngheader_jpconfig_type, g_ngheader_jpconfig_value, g_ngheader_jpconfig_str);
+    _ngheader_emit_pointer(g_ngheader_usconfig_type, g_ngheader_usconfig_value, g_ngheader_usconfig_str);
+    _ngheader_emit_pointer(g_ngheader_euconfig_type, g_ngheader_euconfig_value, g_ngheader_euconfig_str);
+    fprintf(g_file_out_ptr, "s ");
+
+    if (create_a_new_section_structure() == FAILED)
+      return FAILED;
+    strcpy(g_sec_tmp->name, "!__WLA_NGHEADER_PART_2");
+    g_sec_tmp->status = SECTION_STATUS_ABSOLUTE;
+    fprintf(g_file_out_ptr, "A%d %d ", g_sec_tmp->id, 0x122);
+    fprintf(g_file_out_ptr, "k0 ");
+    _ngheader_emit_jump(g_ngheader_userentry_type, g_ngheader_userentry_value, g_ngheader_userentry_str);
+    _ngheader_emit_jump(g_ngheader_playerstart_type, g_ngheader_playerstart_value, g_ngheader_playerstart_str);
+    _ngheader_emit_jump(g_ngheader_demoend_type, g_ngheader_demoend_value, g_ngheader_demoend_str);
+    _ngheader_emit_jump(g_ngheader_coinsound_type, g_ngheader_coinsound_value, g_ngheader_coinsound_str);
+    fprintf(g_file_out_ptr, "s ");
+
+    /* optional CDDA command Z80 RAM pointer at $13A (Neo Geo CD) */
+    if (g_ngheader_cddacmdptr_defined == YES) {
+      if (create_a_new_section_structure() == FAILED)
+        return FAILED;
+      strcpy(g_sec_tmp->name, "!__WLA_NGHEADER_CDDACMDPTR");
+      g_sec_tmp->status = SECTION_STATUS_ABSOLUTE;
+      fprintf(g_file_out_ptr, "A%d %d k0 ", g_sec_tmp->id, 0x13A);
+      fprintf(g_file_out_ptr, "d%d ", (g_ngheader_cddacmdptr_value >> 8) & 0xFF);
+      fprintf(g_file_out_ptr, "d%d ", g_ngheader_cddacmdptr_value & 0xFF);
+      fprintf(g_file_out_ptr, "s ");
+    }
+
+    if (create_a_new_section_structure() == FAILED)
+      return FAILED;
+    strcpy(g_sec_tmp->name, "!__WLA_NGHEADER_PART_3");
+    g_sec_tmp->status = SECTION_STATUS_ABSOLUTE;
+    fprintf(g_file_out_ptr, "A%d %d ", g_sec_tmp->id, 0x182);
+    fprintf(g_file_out_ptr, "k0 ");
+    _ngheader_emit_pointer(g_ngheader_securitycodeptr_type, g_ngheader_securitycodeptr_value, g_ngheader_securitycodeptr_str);
+    fprintf(g_file_out_ptr, "s ");
+
+    if (g_ngheader_emit_default_securitycode == YES) {
+      if (create_a_new_section_structure() == FAILED)
+        return FAILED;
+      strcpy(g_sec_tmp->name, "!__WLA_NGHEADER_SECURITY_CODE");
+      g_sec_tmp->status = SECTION_STATUS_ABSOLUTE;
+      fprintf(g_file_out_ptr, "A%d %d k0 L *WLA_NG_SECURITY_CODE ", g_sec_tmp->id, 0x186);
+      for (i = 0; i < (int)sizeof(s_ngheader_security_code); i++)
+        fprintf(g_file_out_ptr, "d%d ", s_ngheader_security_code[i]);
+      fprintf(g_file_out_ptr, "s ");
+    }
   }
 #endif
 
@@ -640,7 +974,7 @@ int phase_2(void) {
 
 int create_a_new_section_structure(void) {
 
-  g_sec_tmp = calloc(sizeof(struct section_def), 1);
+  g_sec_tmp = calloc(1, sizeof(struct section_def));
   if (g_sec_tmp == NULL) {
     print_error(ERROR_DIR, "Out of memory while allocating room for a new SECTION.\n");
     return FAILED;

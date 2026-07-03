@@ -22,14 +22,20 @@ OPTIONS
 
 -b          Program file output
 -d          Discard unreferenced sections
+-g          Write one combined list file per object file (implies ``-i``)
 -i          Write list files (Note: WLA needs ``-i`` as wel)
 -r          ROM file output (default)
 -s          Write also a NO$GMB/NO$SNES symbol file
 -S          Write also a WLA symbol file
 -A          Add address-to-line mapping data to WLA symbol file
+-E LIST     Write debug exports. Supported formats: VICE, RGBDS, MESEN,
+            EMULICIOUS, CSPECT, NOCASH, MAME and JSON
 -v          Verbose messages
 -L LIBDIR   Look in LIBDIR for libaries before looking in CWD
--t TYPE     Output type (supported types: 'CBMPRG')
+-t TYPE     Output type (supported types: 'CBMPRG', 'C64CRT')
+
+\-64 TYPE   Cartridge type for C64CRT output
+
 -a ADDR     Load address for CBM PRG
 
 Choose one:
@@ -102,6 +108,16 @@ you must compile the object and library files with ``-i`` flag as well.
 Otherwise :manpage:`wlalink(1)` has no extra information it needs to build list
 files.
 
+If flag ``-g`` is given, one combined list file is written per object file next
+to that object file, with included files shown at the point where they are
+included. This flag implies ``-i``.
+
+The ``-E`` option writes debug exports for emulators and tools. The format list
+can be comma- or space-separated. The ``MAME`` format writes a debugger command
+file that can be loaded with MAME's ``source`` debugger command.
+
+The ``-64`` option selects the cartridge type when linking ``-t C64CRT`` output.
+
 Here is an example of a list file: Let's assume you've compiled a source file
 called ``main.s`` using the ``-i`` flag. After you've linked the result also
 with the ``-i`` flag :manpage:`wlalink(1)` has created a list file called
@@ -121,6 +137,7 @@ EXAMPLES
     wlalink -r linkfile testa.sfc
     wlalink -d -i -b linkfile testb.sfc
     wlalink -v -S -L ../../lib linkfile testc.sfc
+    wlalink -v -i -E mame,json linkfile testd.sfc
 
 .. only:: man
 

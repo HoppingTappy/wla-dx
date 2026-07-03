@@ -1,6 +1,6 @@
 
 /*
-  wlalink - part of wla dx gb-z80/z80/z80n/6502/65c02/68000/6800/6801/6809/65816/huc6280/spc-700/8008/8080/superfx
+  wlalink - part of wla dx gb-z80/z80/z80n/ez80/6502/65c02/68000/6800/6801/6809/65816/huc6280/spc-700/8008/8080/superfx/cx4/sh-2
   macro assembler package by ville helin <ville.helin@iki.fi>. this is gpl software.
 */
 
@@ -18,6 +18,8 @@
 #include "compute.h"
 #include "discard.h"
 #include "listfile.h"
+#include "dbgmodel.h"
+#include "dbgexp.h"
 #include "parse.h"
 #include "main.h"
 
@@ -32,7 +34,7 @@
   #define WLALINK_DEBUG 1
 */
 
-char g_version_string[] = "$VER: wlalink 5.22a (29.11.2025)";
+char g_version_string[] = "$VER: wlalink 5.23a (1.7.2026)";
 
 #if defined(AMIGA)
 __near long __stack = 200000;
@@ -42,6 +44,7 @@ struct object_file *g_obj_first = NULL, *g_obj_last = NULL, *g_obj_tmp;
 struct reference *g_reference_first = NULL, *g_reference_last = NULL;
 struct section *g_sec_first = NULL, *g_sec_last = NULL, *g_sec_bankhd_first = NULL, *g_sec_bankhd_last = NULL;
 struct stack *g_stacks_first = NULL, *g_stacks_last = NULL;
+struct assertion *g_assertions_first = NULL, *g_assertions_last = NULL;
 struct label *g_labels_first = NULL, *g_labels_last = NULL;
 struct label **g_sorted_anonymous_labels = NULL;
 struct map_t *g_global_unique_label_map = NULL;
@@ -63,13 +66,16 @@ int g_output_mode = OUTPUT_ROM, g_discard_unreferenced_sections = OFF, g_use_lib
 int g_program_start, g_program_end, g_sms_checksum, g_smstag_defined = 0, g_snes_rom_mode = SNES_ROM_MODE_LOROM, g_snes_rom_speed = SNES_ROM_SPEED_SLOWROM;
 int g_sms_header = 0, g_sms_checksum_already_written = 0, g_sms_checksum_size_defined = 0, g_sms_checksum_size = 0;
 int g_gb_checksum, g_gb_complement_check, g_snes_checksum, g_snes_mode = 0, g_smd_checksum;
-int g_smc_status = 0, g_snes_sramsize = 0, g_allow_duplicate_labels_and_definitions = NO;
-int g_output_type = OUTPUT_TYPE_UNDEFINED, g_sort_sections = YES;
+int g_romformat = ROMFORMAT_BIN;
+int g_smc_status = 0, g_snes_sramsize = 0, g_allow_duplicate_labels_and_definitions = NO, g_allow_value_mismatch_in_duplicate_labels = NO;
+int g_output_type = OUTPUT_TYPE_UNDEFINED, g_c64_crt_type = C64_CRT_TYPE_UNDEFINED, g_sort_sections = YES;
 int g_num_sorted_anonymous_labels = 0, g_use_priority_only_writing_sections = NO, g_use_priority_only_writing_ramsections = NO;
 int g_emptyfill = 0, g_paths_in_linkfile_are_relative_to_linkfile = NO, g_romheader_baseaddress = -1;
+int g_listfile_next_to_object = NO;
 
 static int s_screen_dx = DEFAULT_SCREEN_DX, s_screen_dy = DEFAULT_SCREEN_DY, s_line_x = 0, s_line_y = 0, s_pause_text = NO;
 static int s_create_sizeof_definitions = YES, s_listfile_data = NO, s_symbol_mode = SYMBOL_MODE_NONE;
+static int s_debug_export_flags = 0;
 static unsigned char s_output_addr_to_line = OFF;
 static char s_print_text_buffer[4096];
 
@@ -130,6 +136,7 @@ static const char *s_si_operator_log10 = "log10(a)";
 static const char *s_si_operator_pow = "pow(a,b)";
 static const char *s_si_operator_sign = "sign(a)";
 static const char *s_si_operator_clamp = "clamp(v,min,max)";
+static const char *s_si_operator_base = "base(a)";
 
 static const char *_get_stack_item_operator_name(int operator) {
 
@@ -231,6 +238,8 @@ static const char *_get_stack_item_operator_name(int operator) {
     return s_si_operator_sign;
   else if (operator == SI_OP_CLAMP)
     return s_si_operator_clamp;
+  else if (operator == SI_OP_BASE)
+    return s_si_operator_base;
   
   print_text(NO, "\n");
   print_text(NO, "_get_stack_item_operator_name(): ERROR: Unhandled SI_OP_* (%d)! Please submit a bug report!\n", operator);
@@ -838,6 +847,12 @@ static void _procedures_at_exit(void) {
     g_stacks_first = sta;
   }
 
+  while (g_assertions_first != NULL) {
+    struct assertion *assertion = g_assertions_first->next;
+    free(g_assertions_first);
+    g_assertions_first = assertion;
+  }
+
   while (g_sec_first != NULL) {
     s = g_sec_first->next;
     _free_section_allocations(g_sec_first);
@@ -952,6 +967,58 @@ static int _parse_and_set_libdir(char *c, int contains_flag) {
 }
 
 
+static int _parse_c64_crt_type(char *type) {
+
+  if (strcaselesscmp(type, "NORMAL4K") == 0)
+    return C64_CRT_TYPE_NORMAL_4K;
+  if (strcaselesscmp(type, "NORMAL8K") == 0)
+    return C64_CRT_TYPE_NORMAL_8K;
+  if (strcaselesscmp(type, "NORMAL16K") == 0)
+    return C64_CRT_TYPE_NORMAL_16K;
+  if (strcaselesscmp(type, "ULTIMAX4K") == 0)
+    return C64_CRT_TYPE_ULTIMAX_4K;
+  if (strcaselesscmp(type, "ULTIMAX8K") == 0)
+    return C64_CRT_TYPE_ULTIMAX_8K;
+  if (strcaselesscmp(type, "ULTIMAX16K") == 0)
+    return C64_CRT_TYPE_ULTIMAX_16K;
+  if (strcaselesscmp(type, "OCEAN") == 0)
+    return C64_CRT_TYPE_OCEAN;
+  if (strcaselesscmp(type, "MAGICDESK") == 0)
+    return C64_CRT_TYPE_MAGIC_DESK;
+  if (strcaselesscmp(type, "EASYFLASH") == 0)
+    return C64_CRT_TYPE_EASYFLASH;
+  if (strcaselesscmp(type, "SIMONSBASIC") == 0)
+    return C64_CRT_TYPE_SIMONS_BASIC;
+  if (strcaselesscmp(type, "EPYXFASTLOAD") == 0)
+    return C64_CRT_TYPE_EPYX_FASTLOAD;
+  if (strcaselesscmp(type, "C64GS") == 0)
+    return C64_CRT_TYPE_C64_GS;
+  if (strcaselesscmp(type, "COMAL80") == 0)
+    return C64_CRT_TYPE_COMAL80;
+  if (strcaselesscmp(type, "GMOD2") == 0)
+    return C64_CRT_TYPE_GMOD2;
+  if (strcaselesscmp(type, "RGCD") == 0)
+    return C64_CRT_TYPE_RGCD;
+  if (strcaselesscmp(type, "GMOD3") == 0)
+    return C64_CRT_TYPE_GMOD3;
+
+  return C64_CRT_TYPE_UNDEFINED;
+}
+
+
+static int _parse_romformat_type(char *type) {
+
+  if (strcaselesscmp(type, "BIN") == 0 || strcaselesscmp(type, "RAW") == 0 || strcaselesscmp(type, "GEN") == 0)
+    return ROMFORMAT_BIN;
+  if (strcaselesscmp(type, "SMD") == 0)
+    return ROMFORMAT_SMD;
+  if (strcaselesscmp(type, "MD") == 0)
+    return ROMFORMAT_MD;
+
+  return -1;
+}
+
+
 static int _parse_flags(char **flags, int flagc) {
 
   int output_mode_defined = 0, count, unknowns = 0;
@@ -1009,7 +1076,34 @@ static int _parse_flags(char **flags, int flagc) {
         /* get arg */
         if (!strcmp(flags[count + 1], "CBMPRG"))
           g_output_type = OUTPUT_TYPE_CBM_PRG;
+        else if (!strcmp(flags[count + 1], "C64CRT"))
+          g_output_type = OUTPUT_TYPE_C64_CRT;
         else
+          return FAILED;
+      }
+      else
+        return FAILED;
+      count++;
+    }
+    else if (!strcmp(flags[count], "-O")) {
+      int format;
+
+      if (count + 1 >= flagc) {
+        print_text(NO, "PARSE_FLAGS: -O requires an argument (BIN, SMD or MD).\n");
+        return FAILED;
+      }
+      format = _parse_romformat_type(flags[count + 1]);
+      if (format < 0) {
+        print_text(NO, "PARSE_FLAGS: Unknown Mega Drive ROM file format \"%s\" for -O; expected BIN, SMD or MD.\n", flags[count + 1]);
+        return FAILED;
+      }
+      g_romformat = format;
+      count++;
+    }
+    else if (!strcmp(flags[count], "-64")) {
+      if (count + 1 < flagc) {
+        g_c64_crt_type = _parse_c64_crt_type(flags[count + 1]);
+        if (g_c64_crt_type == C64_CRT_TYPE_UNDEFINED)
           return FAILED;
       }
       else
@@ -1040,10 +1134,18 @@ static int _parse_flags(char **flags, int flagc) {
         return FAILED;
       count++;
     }
-    else if (!strcmp(flags[count], "-c"))
+    else if (!strcmp(flags[count], "-c")) {
+      g_allow_duplicate_labels_and_definitions = YES;
+      g_allow_value_mismatch_in_duplicate_labels = YES;
+    }
+    else if (!strcmp(flags[count], "-C"))
       g_allow_duplicate_labels_and_definitions = YES;
     else if (!strcmp(flags[count], "-i"))
       s_listfile_data = YES;
+    else if (!strcmp(flags[count], "-g")) {
+      s_listfile_data = YES;
+      g_listfile_next_to_object = YES;
+    }
     else if (!strcmp(flags[count], "-nS"))
       g_sort_sections = NO;
     else if (!strcmp(flags[count], "-p"))
@@ -1082,8 +1184,23 @@ static int _parse_flags(char **flags, int flagc) {
       s_symbol_mode = SYMBOL_MODE_WLA;
     else if (!strcmp(flags[count], "-sE"))
       s_symbol_mode = SYMBOL_MODE_EQU;
+    else if (!strcmp(flags[count], "-sM"))
+      s_symbol_mode = SYMBOL_MODE_MAME;
     else if (!strcmp(flags[count], "-A"))
       s_output_addr_to_line = ON;
+    else if (!strcmp(flags[count], "-E")) {
+      if (count + 1 < flagc) {
+        if (debug_export_parse_flags(flags[count+1], &s_debug_export_flags) == FAILED)
+          return FAILED;
+      }
+      else
+        return FAILED;
+      count++;
+    }
+    else if (strncmp(flags[count], "-E", 2) == 0) {
+      if (debug_export_parse_flags(&flags[count][2], &s_debug_export_flags) == FAILED)
+        return FAILED;
+    }
     else if (!strcmp(flags[count], "-d"))
       g_discard_unreferenced_sections = ON;
     else if (!strcmp(flags[count], "-D"))
@@ -1148,7 +1265,7 @@ int main(int argc, char *argv[]) {
     i = FAILED;
 
   if (i == FAILED) {
-    char title[] = "WLALINK - WLA DX Macro Assembler Linker v5.22a";
+    char title[] = "WLALINK - WLA DX Macro Assembler Linker v5.23a";
     int length, left, right;
 
     length = (int)strlen(title);
@@ -1185,17 +1302,24 @@ int main(int argc, char *argv[]) {
 #endif
     print_text(YES, "USAGE: %s [OPTIONS] <LINK FILE> <OUTPUT FILE>\n\n", argv[0]);
     print_text(YES, "OPTIONS:\n");
-    print_text(YES, "-a <ADDR> Load address (can also be label) for CBM PRG\n");
+    print_text(YES, "-a  <ADDR> Load address (can also be label) for CBM PRG\n");
     print_text(YES, "-A  Add address-to-line mapping data to WLA symbol file\n");
     print_text(YES, "-b  Program file output\n");
     print_text(YES, "-bE Ending address of the program (optional)\n");
     print_text(YES, "-bS Starting address of the program (optional)\n");
-    print_text(YES, "-c  Allow duplicate labels and definitions\n");
+    print_text(YES, "-c  Allow duplicate labels and definitions, even if values are\n");
+    print_text(YES, "    different\n");
+    print_text(YES, "-C  Allow duplicate labels and definitions, but don't allow if\n");
+    print_text(YES, "    values are different\n");
     print_text(YES, "-d  Discard unreferenced sections\n");
     print_text(YES, "-D  Don't create _sizeof_* definitions\n");
+    print_text(YES, "-E  <LIST> Write debug exports (VICE,RGBDS,MESEN,EMULICIOUS,\n");
+    print_text(YES, "    CSPECT,NOCASH,MAME,JSON)\n");
+    print_text(YES, "-g  Write one combined list file per object file (implies -i)\n");
     print_text(YES, "-i  Write list files\n");
-    print_text(YES, "-L <DIR> Library directory\n");
+    print_text(YES, "-L  <DIR> Library directory\n");
     print_text(YES, "-nS Don't sort the sections\n");
+    print_text(YES, "-O  <FMT> Mega Drive ROM file format (BIN, SMD, MD)\n");
     print_text(YES, "-p  Pause printing after a screen full of text has been printed,\n");
     print_text(YES, "    use this with -SX and -SY\n");
     print_text(YES, "-pR Write .RAMSECTIONs based on PRIORITY only, ignore .RAMSECTION types\n");
@@ -1204,10 +1328,16 @@ int main(int argc, char *argv[]) {
     print_text(YES, "-R  Make file paths in link file relative to its location\n");
     print_text(YES, "-s  Write also a NO$GMB/NO$SNES symbol file\n");
     print_text(YES, "-sE Write also an EQU symbol file\n");
+    print_text(YES, "-sM Write also a MAME-compatible flat symbol file\n");
     print_text(YES, "-S  Write also a WLA symbol file\n");
     print_text(YES, "-SX <WIDTH> The number of characters per line in console (default %d)\n", DEFAULT_SCREEN_DX);
     print_text(YES, "-SY <HEIGHT> The number of lines in console (default %d)\n", DEFAULT_SCREEN_DY);
-    print_text(YES, "-t <TYPE> Output type (supported types: 'CBMPRG')\n");
+    print_text(YES, "-t  <TYPE> Output type (supported types: 'CBMPRG', 'C64CRT')\n");
+    print_text(YES, "-64 <TYPE> Cartridge type for C64CRT output\n");
+    print_text(YES, "    (supported types: NORMAL4K, NORMAL8K, NORMAL16K, ULTIMAX4K,\n");
+    print_text(YES, "    ULTIMAX8K, ULTIMAX16K, OCEAN, MAGICDESK, EASYFLASH,\n");
+    print_text(YES, "    SIMONSBASIC, EPYXFASTLOAD, C64GS, COMAL80,\n");
+    print_text(YES, "    GMOD2, RGCD, GMOD3)\n");
     print_text(YES, "-v  Verbose messages (all)\n");
     print_text(YES, "-v1 Verbose messages (only discard sections)\n");
     print_text(YES, "-v2 Verbose messages (-v1 plus short summary)\n");
@@ -1446,6 +1576,10 @@ int main(int argc, char *argv[]) {
   if (fix_label_addresses() == FAILED)
     return 1;
 
+  /* insert labels into maps (and check for duplicate labels) */
+  if (check_duplicate_labels() == FAILED)
+    return 1;
+  
   /* generate RAM bank usage labels (RAM_USAGE_SLOT_x_BANK_y_START + RAM_USAGE_SLOT_x_BANK_y_END) */
   if (generate_ram_bank_usage_labels() == FAILED)
     return 1;
@@ -1480,6 +1614,10 @@ int main(int argc, char *argv[]) {
   
   /* compute pending calculations */
   if (compute_pending_calculations() == FAILED)
+    return 1;
+
+  /* evaluate deferred assertions */
+  if (evaluate_deferred_assertions() == FAILED)
     return 1;
 
 #if defined(WLALINK_DEBUG)
@@ -1552,6 +1690,22 @@ int main(int argc, char *argv[]) {
   if (s_symbol_mode != SYMBOL_MODE_NONE) {
     if (write_symbol_file(argv[argc - 1], s_symbol_mode, s_output_addr_to_line) == FAILED)
       return 1;
+  }
+
+  /* export direct emulator/tool debug files */
+  if (s_debug_export_flags != 0) {
+    struct debug_model *debug_model;
+
+    debug_model = debug_model_build(argv[argc - 1]);
+    if (debug_model == NULL) {
+      print_text(NO, "MAIN: Could not build debug export model.\n");
+      return 1;
+    }
+    if (debug_export_all(debug_model, s_debug_export_flags, argv[argc - 1]) == FAILED) {
+      debug_model_free(debug_model);
+      return 1;
+    }
+    debug_model_free(debug_model);
   }
 
   /* write list files */

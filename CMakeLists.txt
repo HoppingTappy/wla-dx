@@ -11,6 +11,7 @@ project(WLA-DX C)
 set(ARCHS
     # wla-NAME:compile-def
     "gb:GB"
+    "cx4:CX4"
     "65c02:WDC65C02"
     "65ce02:CSG65CE02"
     "6502:MCS6502"
@@ -19,6 +20,7 @@ set(ARCHS
     "spc700:SPC700"
     "z80:Z80"
     "z80n:Z80N"
+    "ez80:EZ80"
     "68000:MC68000"
     "6800:MC6800"
     "6801:MC6801"
@@ -27,10 +29,14 @@ set(ARCHS
     "8008:I8008"
     "8080:I8080"
     "superfx:SUPERFX"
+    "sh2:SH2"
     )
 
 option(GDB_DEBUGGING
     "Enable debugging via gdb (Only when CMAKE_BUILD_TYPE is Debug)" ON)
+
+option(STRICT_ANSI_WARNINGS
+    "Enable extra ANSI C89/C90 portability warnings as errors" OFF)
 
 # CMake will automatically define WIN32 for us for Microsoft compilers, how
 # convenient! But we need MSDOS flag as well. Additionally, other compilers
@@ -48,32 +54,59 @@ if(UNIX)
 endif()
 
 set(CMAKE_C_STANDARD 90)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    set(CMAKE_C_STANDARD) # Empty because we use -ansi
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pedantic-errors -Wall -Wextra -ansi")
-    string(REPLACE "-O2" "-O3" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
-    if(CMAKE_C_COMPILER_ID MATCHES "Clang" AND
-            CMAKE_C_COMPILER_VERSION VERSION_LESS 3.8)
-        set(GDB_DEBUGGING OFF)
-        message(STATUS "You need at least clang 3.8 for GDB_DEBUGGING."
-            " Disabling it for now.")
-    endif()
-    if(GDB_DEBUGGING)
-        set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -ggdb")
-    endif()
-endif()
+set(STRICT_ANSI_WARNING_FLAGS
+    -Werror
+    -Wdeclaration-after-statement
+    -Wstrict-prototypes
+    -Wmissing-prototypes
+    -Wold-style-definition
+    -Wmissing-declarations
+    -Werror=implicit-int
+    -Werror=implicit-function-declaration
+    -Wvla
+    -Wlong-long
+    )
 
 if(MSVC)
-    # Disable extensions, enable W3 and force warnings as errors
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /Za /W3 /WX") 
-    # Enable W4 + WX at your own peril, just shy of 1000 warnings there.
+    # This block handles both standard MSVC and Clang on Windows (clang-cl)
+    add_definitions(/D_CRT_SECURE_NO_WARNINGS)
     
-    # Per http://www.cmake.org/pipermail/cmake/2011-October/046738.html,
-    # replace flags directly instead of appending them.
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+        # For clang-cl, use /clang: to pass GNU flags that it wouldn't normally recognize
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /W3 /WX /clang:-pedantic-errors /clang:-ansi")
+    else()
+        # Standard MSVC (cl.exe)
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /Za /W3 /WX")
+    endif()
+
+    # Optimization override
     string(REPLACE "/O[0-4]" "/Ox" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
-    add_definitions(/D_CRT_SECURE_NO_WARNINGS) # STFU about "unsecure" functions
+
+else()
+    # This block handles GCC and Clang on Linux/macOS
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pedantic-errors -Wall -Wextra -ansi")
+
+        if(STRICT_ANSI_WARNINGS)
+            foreach(FLAG ${STRICT_ANSI_WARNING_FLAGS})
+                set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${FLAG}")
+            endforeach()
+        endif()
+
+        string(REPLACE "-O2" "-O3" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
+
+        if(CMAKE_C_COMPILER_ID MATCHES "Clang" AND CMAKE_C_COMPILER_VERSION VERSION_LESS 3.8)
+            set(GDB_DEBUGGING OFF)
+            message(STATUS "You need at least clang 3.8 for GDB_DEBUGGING. Disabling it.")
+        endif()
+
+        if(GDB_DEBUGGING)
+            set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -ggdb")
+        endif()
+    endif()
 endif()
 
 # WATCOM C Compiler works just fine as well. Might be a decent alternative
@@ -170,6 +203,7 @@ foreach(ARCH IN LISTS ARCHS)
         OUTPUT "${TABLE_GEN_OUTPUT}"
         COMMAND ${GEN_PREFIX}gen-${WLA_NAME}
             "${TABLE_GEN_OUTPUT}"
+        DEPENDS gen-${WLA_NAME} "i${WLA_NAME}.c" "defines.h"
         )
 
     # Generate actual wla binary
@@ -192,7 +226,7 @@ endif()
 
 # Packaging via CPack
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
-    "Yet Another GB-Z80/Z80/Z80N/6502/65C02/65CE02/65816/68000/6800/6801/6809/K053248/8008/K053248/8080/HUC6280/SPC-700/SuperFX Multi Platform Cross Assembler Package")
+    "Yet Another GB-Z80/Cx4/Z80/Z80N/eZ80/6502/65C02/65CE02/65816/68000/6800/6801/6809/K053248/8008/8080/HUC6280/SH-2/SPC-700/SuperFX Multi Platform Cross Assembler Package")
 set(CPACK_PACKAGE_CHECKSUM MD5) # CPack 3.7+
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
 set(CPACK_GENERATOR ZIP TGZ 7Z)

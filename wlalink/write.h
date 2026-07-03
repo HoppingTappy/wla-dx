@@ -7,7 +7,7 @@ int check_ramsections(void);
 int fix_all_sections(void);
 int fix_references(void);
 int fix_label_sections(void);
-int insert_label_into_maps(struct label *l, int is_sizeof);
+int insert_label_into_maps(struct label* l, int is_sizeof, int duplicate_check);
 int fix_label_addresses(void);
 int transform_stack_definitions(void);
 int sort_sections(void);
@@ -16,6 +16,7 @@ int write_symbol_file(char *outname, int mode, int output_addr_to_line);
 int write_gb_header(int name_status);
 int write_rom_file(char *outname);
 int compute_pending_calculations(void);
+int evaluate_deferred_assertions(void);
 int compute_stack(struct stack *sta, double *result_ram, double *result_rom, int *result_slot, int *result_base, int *result_bank);
 int write_bank_header_calculations(struct stack *sta);
 int write_bank_header_references(struct reference *r);
@@ -32,5 +33,6 @@ int generate_sizeof_label_definitions(void);
 int fix_sectionstartend_labels(void);
 int get_slot_by_its_name(char *name, int *slot);
 int get_slot_by_a_value(int value, int *slot);
+int check_duplicate_labels(void);
 
 #endif

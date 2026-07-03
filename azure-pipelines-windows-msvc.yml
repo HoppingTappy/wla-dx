@@ -6,16 +6,33 @@ trigger:
 - master
 
 pool:
-  vmImage: 'windows-2022'
+  vmImage: 'windows-latest'
+
+strategy:
+  matrix:
+    Debug_Build:
+      config: 'Debug'
+    Release_Build:
+      config: 'Release'
 
 steps:
+# 1. Build the specific configuration
 - script: |
-    cmake .
-    cmake --build . --config Release -j
-  displayName: 'Build Release'
-  timeoutInMinutes: 60
-- script: |
-    cmake .
-    cmake --build . --config Debug -j
-  displayName: 'Build Debug'
-  timeoutInMinutes: 60
+    cmake . -B build
+    cmake --build build --config $(config) -j
+  displayName: 'Build $(config)'
+
+# 2. Run tests using ONLY the binaries from that build
+- bash: |
+    # Add the specific binary folder created by WLA DX's CMakeLists + MSVC
+    # It follows the pattern: build/binaries/[Configuration]
+    export PATH=$PWD/build/binaries/$(config):$PATH
+    
+    # Debugging: List the files to be 100% sure they are there
+    echo "Checking for binaries in: $PWD/build/binaries/$(config)"
+    ls -l $PWD/build/binaries/$(config)
+    
+    # Run the test script
+    ./run_tests.sh
+  displayName: 'Run Tests ($(config))'
+  workingDirectory: '$(Build.SourcesDirectory)'

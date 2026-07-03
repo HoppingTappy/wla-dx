@@ -9,12 +9,13 @@ Here's the order in which the data is placed into the output:
 4. Group 1 directives.
 
 === ================================================================
-ALL All, GB-Z80, Z80, 6502, 65C02, 65CE02, 65816, HUC6280,
-    SPC-700, 68000, 6800, 6801, 6809, 8008, 8080 and SuperFX
+ALL All, GB-Z80, Cx4, Z80, Z80N, eZ80, 6502, 65C02, 65CE02, 65816,
+    HUC6280, SPC-700, 68000, 6800, 6801, 6809, 8008, 8080 and SuperFX
     versions apply.
 GB  Only the GB-Z80 version applies.
 GB8 Only the GB-Z80 and 65816 versions apply.
 Z80 Only the Z80 version applies.
+EZ8 Only the eZ80 version applies.
 658 Only the 65816 version applies.
 68K Only the 68000 version applies.
 680 Only the 6800, 6801 and 6809 versions apply.
@@ -22,7 +23,9 @@ Z80 Only the Z80 version applies.
 808 Only the 8080 version applies.
 SPC Only the SPC-700 version applies.
 SFX Only the SuperFX version applies.
+650 Only the 6502 version applies.
 65x Only the 6502, 65C02, 65CE02, 65816 and HUC6280 versions apply.
+65C Only the 65C02 version applies.
 !GB All but the GB-Z80 versions apply.
 === ================================================================
 
@@ -48,6 +51,14 @@ GB   ``.COUNTRYCODE 1``
 GB   ``.DESTINATIONCODE 1``
 ALL  ``.EMPTYFILL $C9``
 658  ``.ENDEMUVECTOR``
+68K  ``.ENDMCDHEADER``
+68K  ``.ENDMCDSPHEADER``
+68K  ``.ENDMDVECTORS``
+68K  ``.ENDNG``
+68K  ``.ENDNGSOFTDIP``
+68K  ``.ENDNGVECTORS``
+650  ``.ENDINES``
+65C  ``.ENDLYNX``
 658  ``.ENDNATIVEVECTOR``
 658  ``.ENDSNES``
 658  ``.EXHIROM``
@@ -55,10 +66,18 @@ ALL  ``.EXPORT work_x``
 658  ``.FASTROM``
 GB   ``.GBHEADER``
 658  ``.HIROM``
+650  ``.INESHEADER``
 GB   ``.LICENSEECODENEW "1A"``
 GB   ``.LICENSEECODEOLD $1A``
 658  ``.LOROM``
+65C  ``.LYNXHEADER``
 GB8  ``.NAME "NAME OF THE ROM"``
+68K  ``.MCDHEADER``
+68K  ``.MCDSPHEADER``
+68K  ``.MDVECTORS``
+68K  ``.NGHEADER``
+68K  ``.NGSOFTDIP``
+68K  ``.NGVECTORS``
 GB   ``.NINTENDOLOGO``
 ALL  ``.OUTNAME "other.o"``
 GB   ``.RAMSIZE 0``
@@ -84,6 +103,7 @@ Group 3:
 658  ``.24BIT``
 65x  ``.8BIT``
 658  ``.ACCU 8``
+EZ8  ``.ADL ON``
 ALL  ``.ADDR 16000, main, 255``
 ALL  ``.ALIGN 4``
 ALL  ``.ARRAYDB NAME MyArray INDICES '0', 0, 1``
@@ -120,6 +140,8 @@ ALL  ``.DD $1ffffff, $2000000``
 ALL  ``.DDM filtermacro 1, 2, 3``
 ALL  ``.DEF IF $FF0F``
 ALL  ``.DEFINE IF $FF0F``
+ALL  ``.DELFUNCTION SUM_AB``
+ALL  ``.DELMACRO TEST``
 ALL  ``.DL $102030, $405060``
 ALL  ``.DLM filtermacro 1, 2, 3``
 ALL  ``.DS 256, $10``
@@ -254,6 +276,22 @@ then WLA tries to expand it into 16-bit range.
 This is not a compulsory directive.
 
 
+``.ADL ON``
+-----------
+
+For WLA-eZ80, ``.ADL ON`` makes Z80-style 16-bit immediate and address
+operands assemble as 24-bit values where the eZ80 instruction encoding allows
+it. ``.ADL OFF`` returns to the default Z80-compatible 16-bit behavior.
+
+The per-instruction suffixes ``.SIS``, ``.LIS``, ``.SIL`` and ``.LIL`` emit the
+matching eZ80 mode prefix byte. ``.SIS`` and ``.LIS`` force a short immediate
+for that instruction; ``.SIL`` and ``.LIL`` force a long immediate. ``.S`` and
+``.L`` are accepted as short forms for instruction-mode overrides without an
+immediate operand.
+
+This is not a compulsory directive.
+
+
 ``.8BIT``
 ---------
 
@@ -291,6 +329,11 @@ examples::
 In WLA-65816 ``.ACCU`` / ``.INDEX`` / ``SEP`` / ``REP`` override
 ``.8BIT`` / ``.16BIT``/``.24BIT`` when considering the immediate values, so be
 careful. Still, operand hints override all of these, so use them to be sure.
+
+To hint that the operand fits 8 bits and also take the lowest 8 bits of the
+operand do this::
+
+    STA ZEROPAGE0.#B  ; $85 $00
 
 This is not a compulsory directive.
 
@@ -563,6 +606,18 @@ This is not a compulsory directive.
 ``.ASSERT`` takes a condition, and if it's evaluated to be true, nothing happens. If
 it's false, then assembling ends right there in an error.
 
+``.ASSERT`` also accepts an optional action and message::
+
+    .ASSERT VALUE_1 == 1, ERROR, "VALUE_1 must be 1."
+    .ASSERT VALUE_1 == 1, WARNING, "VALUE_1 should be 1."
+    .ASSERT label_end-label_start == 3, LDERROR, "Unexpected linked size."
+    .ASSERT label_end-label_start == 3, LDWARNING, "Unexpected linked size."
+
+``ERROR`` is the default action and preserves the immediate fatal behavior.
+``WARNING`` is evaluated by the assembler and lets assembly continue. ``LDERROR``
+and ``LDWARNING`` are evaluated by WLALINK after labels, sections and ``_sizeof_``
+definitions have been resolved.
+
 This is not a compulsory directive.
 
 
@@ -622,6 +677,9 @@ contribute to the bank number (bank number == ``.BASE`` + ROM bank of the
 label).
 
 On 65816, use ``.LOROM``, ``.HIROM`` or ``.EXHIROM`` to define the ROM mode. 
+
+``.BASE`` can also given inside a ``.SECTION``, but after ``.ENDS`` the
+base value before the ``.SECTION`` is returned.
 
 This is not a compulsory directive.
 
@@ -1003,6 +1061,27 @@ works as well. And this works also::
 
     AAA = 10
 
+If the name is immediately followed by ``(``, ``.DEFINE`` creates a
+function just like ``.FUNCTION``::
+
+    .DEFINE SUM_AB(varA, varB) (varA + varB)
+
+This is not a compulsory directive.
+
+
+``.DELFUNCTION SUM_AB``
+-----------------------
+
+Deletes the function called ``SUM_AB``.
+
+This is not a compulsory directive.
+
+
+``.DELMACRO TEST``
+------------------
+
+Deletes the macro called ``TEST``.
+
 This is not a compulsory directive.
 
 
@@ -1351,6 +1430,33 @@ Ends definition of the native mode interrupt vector table.
 
 This is not a compulsory directive, but when ``.SNESNATIVEVECTOR``
 is used this one is required to terminate it.
+
+
+``.ENDNG``
+----------
+
+Ends the Neo Geo cartridge header definition.
+
+This is not a compulsory directive, but when ``.NGHEADER`` is used this one is
+required to terminate it.
+
+
+``.ENDNGSOFTDIP``
+-----------------
+
+Ends the Neo Geo soft-DIP / configuration-menu block definition.
+
+This is not a compulsory directive, but when ``.NGSOFTDIP`` is used this one is
+required to terminate it.
+
+
+``.ENDNGVECTORS``
+-----------------
+
+Ends the Neo Geo interrupt-vector stub table definition.
+
+This is not a compulsory directive, but when ``.NGVECTORS`` is used this one is
+required to terminate it.
 
 
 ``.ENDRO``
@@ -1758,8 +1864,13 @@ Creates a function called ``SUM_AB``. Here are some examples::
 
     .FUNCTION SUM_AB(varA, varB) (varA + varB)
     .FUNCTION SUB_A_6(varA) varA-6
-    .FUNCTION SUM_ABC(varA, varB, varC) (SUM_AB(varA. varB) + varC)
+    .FUNCTION SUM_ABC(varA, varB, varC) (SUM_AB(varA, varB) + varC)
     .FUNCTION CONSTANT_1() 1
+
+You can also use ``.DEFINE`` to create a function by putting ``(`` immediately
+after the name::
+
+    .DEFINE ADD_THREE(value) value + 3
 
 ``.FUNCTION`` can be used anywhere values are expected::
 
@@ -1824,6 +1935,63 @@ WLALINK computes 24-bit addresses and bank references. If no
 banking defined in ``.ROMBANKMAP``.
 
 ``.HIROM`` also sets the ROM mode bit in ``$FFD5``.
+
+This is not a compulsory directive.
+
+
+``.INESHEADER``
+---------------
+
+Defines a 16-byte iNES or NES 2.0 file header for WLA-6502 NES projects. The
+header is emitted as a bank 0 ``BANKHEADER`` section, so WLALINK writes it
+before the first PRG ROM bank. Do not define another ``BANKHEADER`` section for
+bank 0 in the same project.
+
+``PRGROMSIZE`` is required and is counted in 16KB units. ``CHRROMSIZE`` is
+counted in 8KB units and defaults to 0, which is commonly used for CHR RAM.
+``MAPPER`` defaults to 0, and ``MIRRORING`` accepts ``HORIZONTAL`` or
+``VERTICAL``::
+
+    .INESHEADER
+        PRGROMSIZE 2
+        CHRROMSIZE 1
+        MAPPER 4
+        MIRRORING VERTICAL
+        BATTERY
+    .ENDINES
+
+The following iNES flags are recognized: ``BATTERY``, ``TRAINER``,
+``FOURSCREEN``, ``VS`` / ``VSUNISYSTEM``, ``PLAYCHOICE`` / ``PLAYCHOICE10``,
+``PRGRAMSIZE``, ``TVSYSTEM`` (``NTSC`` or ``PAL``) and ``FLAGS10``.
+
+Use ``NES2`` inside the block to emit a NES 2.0 header. NES 2.0 adds
+``SUBMAPPER``, ``PRGRAM``, ``PRGNVRAM``, ``CHRRAM``, ``CHRNVRAM``,
+``CPUPPUTIMING`` / ``TIMING`` (``NTSC``, ``PAL``, ``DUAL`` or ``DENDY``),
+``VSHARDWARE``, ``VSPPUTYPE``, ``MISCROMS`` and
+``DEFAULTEXPANSIONDEVICE`` / ``EXPANSIONDEVICE``. The RAM fields are the NES
+2.0 shift-count nibbles, not byte counts.
+
+A complete NES 2.0 header using the extended fields could look like this::
+
+    .INESHEADER
+        NES2
+        PRGROMSIZE 512
+        CHRROMSIZE 128
+        MAPPER 268
+        SUBMAPPER 3
+        MIRRORING HORIZONTAL
+        BATTERY
+        VS
+        PRGRAM 7
+        PRGNVRAM 8
+        CHRRAM 6
+        CHRNVRAM 0
+        CPUPPUTIMING DUAL
+        VSHARDWARE 1
+        VSPPUTYPE 3
+        MISCROMS 1
+        EXPANSIONDEVICE 2
+    .ENDINES
 
 This is not a compulsory directive.
 
@@ -2243,6 +2411,43 @@ WLA defaults to ``.LOROM``.
 This is not a compulsory directive.
 
 
+``.LYNXHEADER``
+---------------
+
+Defines a 64-byte Atari Lynx ``.lnx`` file header for WLA-65C02 projects. The
+header is emitted as a bank 0 ``BANKHEADER`` section, so WLALINK writes it
+before the first cartridge ROM bank. Do not define another ``BANKHEADER``
+section for bank 0 in the same project.
+
+``BANK0BLOCKSIZE`` is required. ``BANK1BLOCKSIZE`` defaults to 0. These values
+are the Lynx header page/block sizes, not byte counts: ``$100`` means 64KB,
+``$200`` means 128KB, ``$400`` means 256KB, ``$800`` means 512KB and ``$1000``
+means 1024KB. ``BANK1BLOCKSIZE`` also accepts 0 for no second bank. ``VERSION``
+defaults to 1, the standard ``.lnx`` version.
+
+``NAME`` / ``CARTNAME`` accepts up to 31 characters and ``MANUFACTURER`` /
+``MANUFACTURERNAME`` accepts up to 15 characters. Both are stored as padded
+C strings in the fixed-size header fields. ``ROTATION`` accepts ``NONE``,
+``LEFT`` or ``RIGHT``. ``AUDIN`` accepts ``OFF`` or ``ON``. ``EEPROM`` accepts
+``NONE``, ``93C46``, ``93C56``, ``93C66``, ``93C76`` or ``93C86``; the
+``_8BIT`` and ``_16BIT`` suffixes can be added to those EEPROM names. Use
+``EEPROMVALUE`` to write a raw EEPROM byte, ``EEPROM8BIT`` / ``EEPROM16BIT``
+to adjust the access-width flag, and ``EEPROMSD`` to set the SD flag. ``SPARE``
+writes the three spare bytes::
+
+    .LYNXHEADER
+        BANK0BLOCKSIZE $400
+        BANK1BLOCKSIZE 0
+        NAME "HELLO LYNX"
+        MANUFACTURER "WLA DX"
+        ROTATION NONE
+        AUDIN OFF
+        EEPROM NONE
+    .ENDLYNX
+
+This is not a compulsory directive.
+
+
 ``.MACRO TEST``
 ---------------
 
@@ -2263,11 +2468,10 @@ type ``\X`` where ``X`` is the number of the argument. Another way to refer
 to the arguments is to use their names given in the definition of the
 macro (see the examples for this).
 
-Remember to use ``.ENDM`` to finish the macro definition. Note that you
-cannot use ``.INCLUDE`` inside a macro. Note that WLA's macros are in fact
-more like procedures than real macros, because WLA doesn't substitute
-macro calls with macro data. Instead WLA jumps to the macro when it
-encounters a macro call at compile time.
+Remember to use ``.ENDM`` to finish the macro definition. Note that WLA's
+macros are in fact more like procedures than real macros, because WLA
+doesn't substitute macro calls with macro data. Instead WLA jumps to the
+macro when it encounters a macro call at compile time.
 
 You can call macros from inside a macro. Note that the preprocessor
 does not expand the macros. WLA traverses through the code according to
@@ -3416,6 +3620,197 @@ three bytes:
         * Bit ``1``: ``0``
         * Bit ``0``: ``0``
 ====== ===================================================================
+
+This is not a compulsory directive.
+
+
+``.NGHEADER``
+--------------
+
+Defines the Neo Geo cartridge header in ``$100-$185`` and, when needed, emits a
+default security code immediately after it. All fields are optional except for
+``NGH`` and ``USERENTRY``. Here are the default values::
+
+    .NGHEADER
+        NGH $1234
+        SYSTEMVERSION 0
+        PROMSIZE AUTO
+        BACKUPRAMPTR 0
+        BACKUPRAMSIZE 0
+        EYECATCHER SYSTEM
+        LOGOBANK $1B
+        JPCONFIG 0
+        USCONFIG 0
+        EUCONFIG 0
+        USERENTRY Start
+        PLAYERSTART Start
+        DEMOEND Start
+        COINSOUND Start
+        SECURITYCODEPTR *generated internal label*
+    .ENDNG
+
+``EYECATCHER`` accepts ``SYSTEM``, ``GAME`` and ``NONE`` as symbolic values.
+``PROMSIZE AUTO`` uses the configured total P ROM size from the active ROM bank
+configuration. ``PROMSIZE AUTOPOW2`` rounds that size up to the next
+power-of-two MiB, writes the rounded size to the header, and pads the linked
+ROM image with ``.EMPTYFILL`` bytes to match.
+
+Two optional fields extend the header for Neo Geo CD builds:
+
+* ``SYSTEM CART`` / ``SYSTEM CD`` - convenience alias for ``SYSTEMVERSION``;
+  sets the system byte at ``$107`` to ``0`` (cartridge) or ``2`` (CD). An
+  integer value is also accepted.
+* ``CDDACMDPTR <word>`` - when present, emits a big-endian 16-bit Z80 RAM
+  address at ``$13A``. This is the CDDA command pointer read by the Neo Geo CD
+  BIOS. Required only for CD builds.
+
+This is not a compulsory directive.
+
+
+``.NGSOFTDIP``
+--------------
+
+Emits a 128-byte Neo Geo BIOS soft-DIP / configuration-menu block at the
+current assembly position, formatted to match the layout expected by the
+``JPCONFIG`` / ``USCONFIG`` / ``EUCONFIG`` pointers in ``.NGHEADER``. Place a
+label immediately before the directive and pass that label to the matching
+``.NGHEADER`` config field. ``NAME`` is required; every other field defaults
+to a blank / ``$FF`` / ``$00`` fill. Example::
+
+    SoftDIPJP:
+    .NGSOFTDIP
+        NAME "TEST GAME"
+        SPECIAL $FF,$FF,$FF,$FF,$FF,$FF
+        OPTIONS $24,$02,$00,$00,$00,$00,$00,$00,$00,$00
+        TEXT "LIVES       "
+        TEXT "1           "
+        TEXT "2           "
+        TEXT "3           "
+        TEXT "4           "
+        TEXT "HOW TO PLAY "
+        TEXT "WITH        "
+        TEXT "WITHOUT     "
+    .ENDNGSOFTDIP
+
+The block layout is:
+
+* 16 bytes - game name (upper ASCII, padded with ``$20``).
+* 6 bytes - ``SPECIAL`` list (default ``$FF`` x 6).
+* 10 bytes - ``OPTIONS`` list (default ``$00`` x 10).
+* 8 x 12 bytes - ``TEXT`` menu labels (default 12 spaces each).
+
+Fewer than eight ``TEXT`` entries is allowed; remaining lines are padded with
+spaces.
+
+This is not a compulsory directive.
+
+
+``.NGVECTORS``
+---------------
+
+Emits three absolute ``jmp`` instructions for the Neo Geo interrupt-vector
+stub table at the current assembly position. Place it at the vector stub
+location used by your startup code, usually with an absolute ``.ORGA``. All
+three fields are required and may be labels, numeric addresses or calculated
+addresses. The emitted order is always ``VBLANK``, ``TIMER``, ``EXTERNAL``::
+
+    .ORGA $0066
+    .NGVECTORS
+        VBLANK   VBlankHandler
+        TIMER    TimerHandler
+        EXTERNAL ExternalHandler
+    .ENDNGVECTORS
+
+This directive emits code only; it does not install interrupt handlers or
+enable interrupts.
+
+This is not a compulsory directive.
+
+
+``.MDVECTORS``
+---------------
+
+Defines the Sega Mega Drive/Genesis MC68000 exception and interrupt vector
+table at ``$000000-$0000FF``. ``RESET`` is required. ``INITIALSP`` / ``SSP``
+defaults to ``$00FFFE00`` and every other unspecified entry uses ``DEFAULT``
+when it is present, or ``$00000000`` otherwise. Pointer fields accept labels,
+numeric addresses and calculated addresses::
+
+    .MDVECTORS
+        RESET   Start
+        DEFAULT DefaultException
+        HBLANK  HBlankHandler
+        VBLANK  VBlankHandler
+    .ENDMDVECTORS
+
+Recognized vector names are ``INITIALSP`` / ``SSP``, ``RESET``,
+``BUSERROR``, ``ADDRESSERROR`` / ``ADDRERROR``, ``ILLEGALINSTR`` /
+``ILLEGAL``, ``ZERODIVIDE`` / ``DIVZERO``, ``CHKINSTR`` / ``CHK``,
+``TRAPV``, ``PRIVVIOLATION`` / ``PRIVILEGE``, ``TRACE``, ``LINEA`` /
+``LINE1010``, ``LINEF`` / ``LINE1111``, ``SPURIOUS``, ``LEVEL1``,
+``EXTERNAL`` / ``LEVEL2``, ``LEVEL3``, ``HBLANK`` / ``LEVEL4``, ``LEVEL5``,
+``VBLANK`` / ``LEVEL6``, ``LEVEL7`` and ``TRAP0`` through ``TRAP15``.
+Do not also place code or data at ``$000000`` with ``.ORG 0`` or ``.ORGA 0``;
+``.MDVECTORS`` owns the cartridge vector-table range.
+
+This is not a compulsory directive.
+
+
+``.MCDHEADER``
+---------------
+
+Defines a Sega CD / Mega CD main CPU initial-program header at ``$000000``.
+All fixed string fields are padded with spaces. ``IPSTART`` is required; other
+pointer fields default to ``0``::
+
+    .MCDHEADER
+        SYSTEMTYPE "SEGADISCSYSTEM"
+        COPYRIGHT "WLA DX"
+        TITLEDOMESTIC "WLA DX MEGA CD MAIN"
+        TITLEOVERSEAS "WLA DX SEGA CD MAIN"
+        SERIALNUMBER "GM 00000000-00"
+        DEVICESUPPORT "J"
+        REGIONSUPPORT "JUE"
+        IPSTART Start
+        SPSTART SubCpuProgram
+        VBLANKINT VBlankHandler
+        HBLANKINT HBlankHandler
+        USERPROCESS UserProcess
+    .ENDMCDHEADER
+
+String widths are ``SYSTEMTYPE`` 16 bytes, ``COPYRIGHT`` 16 bytes,
+``TITLEDOMESTIC`` 48 bytes, ``TITLEOVERSEAS`` 48 bytes, ``SERIALNUMBER`` 14
+bytes, ``DEVICESUPPORT`` 16 bytes and ``REGIONSUPPORT`` 3 bytes.
+Close the block with ``.ENDMCDHEADER``. ``.MCDHEADER`` and ``.MCDSPHEADER``
+cannot be used in the same source file.
+If ``DEVICESUPPORT`` is omitted, WLA DX emits a warning and uses ``"J"`` padded
+to the 16-byte field width.
+The field order follows the IP.BIN boot record layout documented in Sega's
+Mega CD technical bulletins. For standard cartridge header background, see
+https://plutiedev.com/rom-header; for Sega CD images, use ``.MCDHEADER``
+instead of ``.SMDHEADER``.
+
+This is not a compulsory directive.
+
+
+``.MCDSPHEADER``
+-----------------
+
+Defines a Sega CD / Mega CD sub CPU program header at ``$000000``. ``SPENTRY``
+is required; the remaining pointer fields default to ``0``::
+
+    .MCDSPHEADER
+        SPENTRY SubEntry
+        SPINIT SubInit
+        SPMAIN SubMain
+        SPINT2 SubInt2
+        SPUSER SubUser
+    .ENDMCDSPHEADER
+
+Close the block with ``.ENDMCDSPHEADER``. ``.MCDHEADER`` and ``.MCDSPHEADER``
+cannot be used in the same source file.
+The field order follows the SP.BIN boot record layout documented in Sega's
+Mega CD technical bulletins.
 
 This is not a compulsory directive.
 

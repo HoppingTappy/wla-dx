@@ -48,6 +48,16 @@ int g_smsforcechecksum = 0, g_smsforcechecksum_defined = 0, g_smschecksumsize = 
 static int s_smsreservedspace_defined = 0;
 #endif
 
+#if defined(MCS6502)
+unsigned char g_inesheader[16];
+int g_inesheader_defined = NO;
+#endif
+
+#if defined(WDC65C02)
+unsigned char g_lynxheader[64];
+int g_lynxheader_defined = NO;
+#endif
+
 #if defined(MC68000)
 char g_smdheader_systemtype[17] = "SEGA MEGA DRIVE ";
 char g_smdheader_copyright[17] = "                ";
@@ -62,6 +72,53 @@ int g_smdheader_extramemory_type_2 = 0xa0, g_smdheader_extramemory_type_3 = 0x20
 char g_smdheader_modemsupport[13] = "            ";
 char g_smdheader_regionsupport[4] = "JUE";
 int g_computesmdchecksum_defined = 0, g_smdheader_defined = NO;
+int g_ngheader_defined = NO, g_ngheader_ngh = 0, g_ngheader_ngh_defined = NO;
+int g_ngheader_systemversion = 0, g_ngheader_promsize = 0, g_ngheader_promsize_defined = NO, g_ngheader_promsize_autopow2 = NO;
+int g_ngheader_backupramptr = 0, g_ngheader_backupramsize = 0;
+int g_ngheader_eyecatcher = 0, g_ngheader_logobank = 0x1b;
+int g_ngheader_jpconfig_type = TYPE_VALUE, g_ngheader_jpconfig_value = 0;
+int g_ngheader_usconfig_type = TYPE_VALUE, g_ngheader_usconfig_value = 0;
+int g_ngheader_euconfig_type = TYPE_VALUE, g_ngheader_euconfig_value = 0;
+int g_ngheader_userentry_type = TYPE_VALUE, g_ngheader_userentry_value = 0;
+int g_ngheader_playerstart_type = TYPE_VALUE, g_ngheader_playerstart_value = 0;
+int g_ngheader_demoend_type = TYPE_VALUE, g_ngheader_demoend_value = 0;
+int g_ngheader_coinsound_type = TYPE_VALUE, g_ngheader_coinsound_value = 0;
+int g_ngheader_securitycodeptr_type = TYPE_VALUE, g_ngheader_securitycodeptr_value = 0;
+int g_ngheader_emit_default_securitycode = NO;
+int g_ngheader_cddacmdptr_defined = NO, g_ngheader_cddacmdptr_value = 0;
+char *g_ngheader_jpconfig_str = NULL, *g_ngheader_usconfig_str = NULL, *g_ngheader_euconfig_str = NULL;
+char *g_ngheader_userentry_str = NULL, *g_ngheader_playerstart_str = NULL, *g_ngheader_demoend_str = NULL;
+char *g_ngheader_coinsound_str = NULL, *g_ngheader_securitycodeptr_str = NULL;
+int g_md_org0_defined = NO;
+int g_mdvectors_defined = NO, g_mdvectors_default_defined = NO;
+int g_mdvectors_defined_slots[MD_VECTOR_COUNT];
+int g_mdvectors_type[MD_VECTOR_COUNT], g_mdvectors_value[MD_VECTOR_COUNT];
+char *g_mdvectors_str[MD_VECTOR_COUNT];
+int g_mdvectors_default_type = TYPE_VALUE, g_mdvectors_default_value = 0;
+char *g_mdvectors_default_str = NULL;
+char g_mcdheader_systemtype[17] = "SEGA MEGA DRIVE ";
+char g_mcdheader_copyright[17] = "                ";
+char g_mcdheader_titledomestic[49] = "                                                ";
+char g_mcdheader_titleoverseas[49] = "                                                ";
+char g_mcdheader_serialnumber[15] = "              ";
+char g_mcdheader_devicesupport[17] = "J               ";
+char g_mcdheader_regionsupport[4] = "JUE";
+int g_mcdheader_defined = NO;
+int g_mcdheader_ipstart_type = TYPE_VALUE, g_mcdheader_ipstart_value = 0;
+int g_mcdheader_spstart_type = TYPE_VALUE, g_mcdheader_spstart_value = 0;
+int g_mcdheader_vblank_type = TYPE_VALUE, g_mcdheader_vblank_value = 0;
+int g_mcdheader_hblank_type = TYPE_VALUE, g_mcdheader_hblank_value = 0;
+int g_mcdheader_userprocess_type = TYPE_VALUE, g_mcdheader_userprocess_value = 0;
+char *g_mcdheader_ipstart_str = NULL, *g_mcdheader_spstart_str = NULL;
+char *g_mcdheader_vblank_str = NULL, *g_mcdheader_hblank_str = NULL, *g_mcdheader_userprocess_str = NULL;
+int g_mcdspheader_defined = NO;
+int g_mcdspheader_spentry_type = TYPE_VALUE, g_mcdspheader_spentry_value = 0;
+int g_mcdspheader_spinit_type = TYPE_VALUE, g_mcdspheader_spinit_value = 0;
+int g_mcdspheader_spmain_type = TYPE_VALUE, g_mcdspheader_spmain_value = 0;
+int g_mcdspheader_spint2_type = TYPE_VALUE, g_mcdspheader_spint2_value = 0;
+int g_mcdspheader_spuser_type = TYPE_VALUE, g_mcdspheader_spuser_value = 0;
+char *g_mcdspheader_spentry_str = NULL, *g_mcdspheader_spinit_str = NULL, *g_mcdspheader_spmain_str = NULL;
+char *g_mcdspheader_spint2_str = NULL, *g_mcdspheader_spuser_str = NULL;
 #endif
 
 int g_org_defined = 1, g_background_defined = 0;
@@ -70,7 +127,7 @@ int g_rambanks = 0, g_rambanks_defined = 0;
 int g_emptyfill = 0, g_emptyfill_defined = 0;
 int g_section_status = OFF, g_section_id = 1;
 int g_parsed_int, g_source_index, g_ifdef = 0, g_slots_amount = 0;
-int g_memorymap_defined = 0, g_bank = 0, g_base = -1;
+int g_memorymap_defined = 0, g_bank = 0, g_base = -1, g_base_backup = -1;
 int g_banksize_defined = 0, g_banksize = 0;
 int g_rombankmap_defined = 0, *g_banks = NULL, *g_bankaddress = NULL;
 int g_bankheader_status = OFF;
@@ -111,6 +168,7 @@ char g_current_directive[MAX_NAME_LENGTH + 1];
 
 unsigned char *g_rom_banks = NULL, *g_rom_banks_usage_table = NULL;
 
+struct call_stack_item *g_call_stack_items_first = NULL, *g_call_stack_items_last = NULL;
 struct structure **g_saved_structures = NULL;
 struct export_def *g_export_first = NULL, *g_export_last = NULL;
 struct map_t *g_defines_map = NULL;
@@ -130,12 +188,13 @@ struct array *g_arrays_first = NULL;
 struct string *g_fopen_filenames_first = NULL, *g_fopen_filenames_last = NULL;
 struct function *g_functions_first = NULL, *g_functions_last = NULL;
 struct namespace *g_namespaces_first = NULL;
+struct assertion *g_assertions_first = NULL, *g_assertions_last = NULL;
 
 extern char *g_buffer, *unfolded_buffer, g_label[MAX_NAME_LENGTH + 1], *g_include_dir, *g_full_name, g_latest_include_dir[MAX_NAME_LENGTH + 1];
 extern int g_source_file_size, g_input_number_error_msg, g_verbose_level, g_output_format, g_open_files, g_input_parse_if;
 extern int g_last_stack_id, g_latest_stack, g_ss, g_commandline_parsing, g_newline_beginning, g_expect_calculations, g_input_parse_special_chars;
 extern int g_extra_definitions, g_string_size, g_input_float_mode, g_operand_hint, g_operand_hint_type, g_dsp_enable_label_address_conversion;
-extern int g_include_dir_size, g_parse_floats, g_listfile_data, g_quiet, g_parsed_double_decimal_numbers;
+extern int g_include_dir_size, g_parse_floats, g_listfile_data, g_quiet, g_parsed_double_decimal_numbers, g_print_call_stack_on_exit;
 extern int g_create_sizeof_definitions, g_input_allow_leading_hashtag, g_input_has_leading_hashtag, g_input_allow_leading_ampersand;
 extern int g_plus_and_minus_ends_label, g_get_next_token_use_substitution, g_input_number_turn_values_into_strings;
 extern int g_continue_parsing_after_an_error, g_continued_parsing_after_an_error, g_allow_labels_without_colon;
@@ -159,6 +218,11 @@ static int s_repeat_active = 0, s_saved_structures_max = 0, s_skip_elifs[256];
 
 #if defined(MCS6502) || defined(WDC65C02) || defined(CSG65CE02) || defined(W65816) || defined(HUC6280) || defined(MC6800) || defined(MC6801) || defined(MC6809) || defined(K053248)
 int g_xbit_size = 0, g_accu_size = 8, g_index_size = 8;
+int g_accu_set_by_rep_sep = 0, g_index_set_by_rep_sep = 0;
+#endif
+
+#if defined(EZ80)
+int g_ez80_adl_mode = 0;
 #endif
 
 /* vars used when in an enum, ramsection, or struct. */
@@ -231,7 +295,7 @@ static char *_string_duplicate_size(char *p, int size) {
   if (p == NULL)
     return NULL;
 
-  result = calloc(sizeof(char), size + 1);
+  result = calloc(size + 1, sizeof(char));
   if (result == NULL) {
     print_error(ERROR_DIR, "Out of memory while allocating a new string (\"%s\").\n", p);
     return NULL;
@@ -333,6 +397,64 @@ static int _get_slot_number_by_a_value(int value, int *slot) {
 }
 
 
+static int _call_stack_item_push(void) {
+
+  struct call_stack_item *csi;
+
+  /* the 1st file in project? */
+  if (g_active_file_info_last == NULL)
+    return SUCCEEDED;
+
+  csi = calloc(1, sizeof(struct call_stack_item));
+  if (csi == NULL) {
+    print_error(ERROR_ERR, "Out of memory error while allocating a call stack item.\n");
+    return FAILED;
+  }
+
+  csi->line_number = g_active_file_info_last->line_current;
+  strcpy(csi->filename, get_file_name(g_active_file_info_last->filename_id));
+  csi->next = NULL;
+  csi->prev = g_call_stack_items_last;
+
+  if (g_macro_runtime_current != NULL && g_macro_runtime_current->macro != NULL)
+    strcpy(csi->macro_name, g_macro_runtime_current->macro->name);
+  else
+    csi->macro_name[0] = 0;
+
+  if (g_call_stack_items_first == NULL)
+    g_call_stack_items_first = csi;
+
+  if (g_call_stack_items_last != NULL)
+    g_call_stack_items_last->next = csi;
+  g_call_stack_items_last = csi;
+
+  return SUCCEEDED;
+}
+
+
+static int _call_stack_item_pop(void) {
+
+  struct call_stack_item *csi;
+  
+  csi = g_call_stack_items_last;
+  if (csi == NULL) {
+    print_error(ERROR_ERR, "Calling _call_stack_item_pop(), but the call stack is empty! Please submit a bug report!\n");
+    return FAILED;
+  }
+
+  if (csi->prev != NULL)
+    csi->prev->next = NULL;
+  else
+    g_call_stack_items_first = NULL;
+
+  g_call_stack_items_last = csi->prev;
+
+  free(csi);
+
+  return SUCCEEDED;
+}
+
+
 int macro_get(char *name, int add_namespace, struct macro_static **macro_out) {
 
   struct macro_static *macro;
@@ -382,6 +504,74 @@ int macro_get(char *name, int add_namespace, struct macro_static **macro_out) {
 }
 
 
+int function_get(char *name, struct function **function_out) {
+
+  struct function *function;
+  char c1;
+
+  c1 = name[0];
+  function = g_functions_first;
+  while (function != NULL) {
+    if (c1 == function->name[0]) {
+      if (strcmp(function->name, name) == 0)
+        break;
+    }
+    function = function->next;
+  }
+
+  *function_out = function;
+
+  return SUCCEEDED;
+}
+
+
+int function_get_with_namespace(char *name, int add_namespace, struct function **function_out) {
+
+  struct function *function;
+  char fullname[MAX_NAME_LENGTH + 1];
+  int namespace_added = NO;
+
+  strcpy(fullname, name);
+
+  if (add_namespace == YES) {
+    if (g_macro_active > 0) {
+      struct macro_runtime *rt;
+      struct macro_static *st;
+
+      rt = &g_macro_stack[g_macro_active - 1];
+      st = rt->macro;
+
+      if (st->defined_namespace[0] != 0) {
+        if (_add_namespace_to_string(fullname, sizeof(fullname), ".FUNCTION", st->defined_namespace) == FAILED) {
+          *function_out = NULL;
+          return FAILED;
+        }
+        namespace_added = YES;
+      }
+    }
+    else if (g_active_file_info_last->namespace[0] != 0) {
+      if (add_namespace_to_string(fullname, sizeof(fullname), ".FUNCTION") == FAILED) {
+        *function_out = NULL;
+        return FAILED;
+      }
+      namespace_added = YES;
+    }
+  }
+
+  if (namespace_added == YES) {
+    if (function_get(fullname, &function) == FAILED)
+      return FAILED;
+
+    if (function != NULL) {
+      *function_out = function;
+      return SUCCEEDED;
+    }
+  }
+
+  return function_get(name, function_out);
+}
+
+
 static int _macro_stack_grow(void) {
 
   if (g_macro_active == s_macro_stack_size) {
@@ -392,7 +582,7 @@ static int _macro_stack_grow(void) {
     old_size = s_macro_stack_size;
     s_macro_stack_size = (s_macro_stack_size<<1)+2;
 
-    macro = calloc(sizeof(struct macro_runtime) * s_macro_stack_size, 1);
+    macro = calloc(s_macro_stack_size, sizeof(struct macro_runtime));
     if (macro == NULL) {
       print_error(ERROR_ERR, "Out of memory error while enlarging macro stack buffer.\n");
       return FAILED;
@@ -404,7 +594,8 @@ static int _macro_stack_grow(void) {
     }
 
     g_macro_stack = macro;
-    g_macro_runtime_current = &g_macro_stack[g_macro_active - 1];
+    if (g_macro_active > 0)
+      g_macro_runtime_current = &g_macro_stack[g_macro_active - 1];
   }
 
   return SUCCEEDED;
@@ -412,6 +603,9 @@ static int _macro_stack_grow(void) {
 
 
 static int _macro_start(struct macro_static *m, struct macro_runtime *mrt, int caller, int nargs) {
+
+  if (_call_stack_item_push() == FAILED)
+    return FAILED;
 
   g_macro_runtime_current = mrt;
   g_macro_active++;
@@ -482,8 +676,8 @@ static int _macro_start_dxm(struct macro_static *m, int caller, char *name, int 
   }
 
   mrt->argument_data = calloc(sizeof(struct macro_argument *) << 1, 1);
-  mrt->argument_data[0] = calloc(sizeof(struct macro_argument), 1);
-  mrt->argument_data[1] = calloc(sizeof(struct macro_argument), 1);
+  mrt->argument_data[0] = calloc(1, sizeof(struct macro_argument));
+  mrt->argument_data[1] = calloc(1, sizeof(struct macro_argument));
   if (mrt->argument_data == NULL || mrt->argument_data[0] == NULL || mrt->argument_data[1] == NULL) {
     print_error(ERROR_NONE, "Out of memory error while collecting macro arguments.\n");
     return FAILED;
@@ -560,9 +754,9 @@ static int _macro_start_incbin(struct macro_static *m, struct macro_incbin *incb
     mrt->offset++;
 
   mrt->argument_data = calloc(sizeof(struct macro_argument *) * 3, 1);
-  mrt->argument_data[0] = calloc(sizeof(struct macro_argument), 1);
-  mrt->argument_data[1] = calloc(sizeof(struct macro_argument), 1);
-  mrt->argument_data[2] = calloc(sizeof(struct macro_argument), 1);
+  mrt->argument_data[0] = calloc(1, sizeof(struct macro_argument));
+  mrt->argument_data[1] = calloc(1, sizeof(struct macro_argument));
+  mrt->argument_data[2] = calloc(1, sizeof(struct macro_argument));
   if (mrt->argument_data == NULL || mrt->argument_data[0] == NULL || mrt->argument_data[1] == NULL || mrt->argument_data[2] == NULL) {
     print_error(ERROR_NONE, "Out of memory error while collecting macro arguments.\n");
     return FAILED;
@@ -837,6 +1031,23 @@ static struct structure* _get_structure(char *name) {
 
 
 int directive_define_def_equ(void);
+
+#if defined(MCS6502)
+int directive_inesheader(void);
+#endif
+
+#if defined(WDC65C02)
+int directive_lynxheader(void);
+#endif
+
+#if defined(MC68000)
+int directive_ngheader(void);
+int directive_ngsoftdip(void);
+int directive_ngvectors(void);
+int directive_mdvectors(void);
+int directive_mcdheader(void);
+int directive_mcdspheader(void);
+#endif
 
 
 static void _forget_macro_replacements(int move_index) {
@@ -1252,7 +1463,7 @@ int phase_1(void) {
         }
 
         mrt->argument_data = realloc(mrt->argument_data, (p+1)*sizeof(struct macro_argument *));
-        mrt->argument_data[p] = calloc(sizeof(struct macro_argument), 1);
+        mrt->argument_data[p] = calloc(1, sizeof(struct macro_argument));
         if (mrt->argument_data == NULL || mrt->argument_data[p] == NULL) {
           print_error(ERROR_NONE, "Out of memory error while collecting macro arguments.\n");
           return FAILED;
@@ -1268,10 +1479,14 @@ int phase_1(void) {
           strcpy(mrt->argument_data[p]->string, g_label);
         else if (q == INPUT_NUMBER_STACK)
           mrt->argument_data[p]->value = (double)g_latest_stack;
-        else if (q == SUCCEEDED)
+        else if (q == SUCCEEDED) {
           mrt->argument_data[p]->value = (double)g_parsed_int;
-        else if (q == INPUT_NUMBER_FLOAT)
+          snprintf(mrt->argument_data[p]->string, sizeof(mrt->argument_data[p]->string), "%.*s", g_source_index - o, &g_buffer[o]);
+        }
+        else if (q == INPUT_NUMBER_FLOAT) {
           mrt->argument_data[p]->value = g_parsed_double;
+          snprintf(mrt->argument_data[p]->string, sizeof(mrt->argument_data[p]->string), "%.*s", g_source_index - o, &g_buffer[o]);
+        }
         else
           return FAILED;
 
@@ -1289,7 +1504,7 @@ int phase_1(void) {
           hashmap_get(g_defines_map, argument_name, (void*)&definition);
           if (definition != NULL) {
             /* yes, store it! */
-            struct definition_storage *storage = calloc(sizeof(struct definition_storage), 1);
+            struct definition_storage *storage = calloc(1, sizeof(struct definition_storage));
             if (storage == NULL) {
               print_error(ERROR_ERR, "Out of memory error while trying to store a definition.\n");
               return FAILED;
@@ -1418,7 +1633,7 @@ int add_a_new_definition(char *name, double value, char *string, int type, int s
     return FAILED;
   }
 
-  d = calloc(sizeof(struct definition), 1);
+  d = calloc(1, sizeof(struct definition));
   if (d == NULL) {
     if (g_commandline_parsing == OFF)
       print_error(ERROR_DIR, "Out of memory while trying to add a new definition (\"%s\").\n", name);
@@ -1505,6 +1720,32 @@ int verify_name_length(char *name) {
 }
 
 
+void print_current_call_stack(void) {
+
+  struct call_stack_item *csi;
+
+  if (g_active_file_info_last == NULL)
+    return;
+
+  csi = g_call_stack_items_last;
+
+  print_text(NO, "  at %s:%d", get_file_name(g_active_file_info_last->filename_id), g_active_file_info_last->line_current);
+  if (g_macro_runtime_current != NULL)
+    print_text(NO, ":%s()\n", g_macro_runtime_current->macro->name);
+  else
+    print_text(NO, "\n");
+
+  while (csi != NULL) {
+    print_text(NO, "  <- %s:%d", csi->filename, csi->line_number);
+    if (csi->macro_name[0] != 0)
+      print_text(NO, ":%s()\n", csi->macro_name);
+    else
+      print_text(NO, "\n");
+    csi = csi->prev;
+  }
+}
+
+
 void print_error(int type, char *error, ...) {
 
   char error_dir[] = "DIRECTIVE_ERROR:";
@@ -1557,9 +1798,7 @@ void print_error(int type, char *error, ...) {
     break;
   }
 
-  if (g_active_file_info_last != NULL)
-    print_text(NO, "%s:%d: ", get_file_name(g_active_file_info_last->filename_id), g_active_file_info_last->line_current);
-
+  /* print the error */
   if (t != NULL) {
     print_text(NO, t);
     print_text(NO, " ");
@@ -1569,6 +1808,11 @@ void print_error(int type, char *error, ...) {
   print_text_using_args(NO, error, args);
   va_end(args);
 
+  if (g_continue_parsing_after_an_error == YES)
+    print_current_call_stack();
+  else
+    g_print_call_stack_on_exit = YES;
+  
   fflush(stderr);
 
   return;
@@ -1577,7 +1821,7 @@ void print_error(int type, char *error, ...) {
 
 #if defined(W65816)
 
-void give_snes_rom_mode_defined_error(char *prior) {
+static void _give_snes_rom_mode_defined_error(char *prior) {
 
   if (g_lorom_defined != 0)
     print_error(ERROR_DIR, ".LOROM was defined prior to %s.\n", prior);
@@ -1610,14 +1854,14 @@ void next_line(void) {
 
 
 /* NOTE! this doesn't work is every case, only for small jumps inside the same source file */
-void remember_current_source_file_position(void) {
+static void _remember_current_source_file_position(void) {
 
   s_source_index_old = g_source_index;
   s_line_current_old = g_active_file_info_last->line_current;
 }
 
 
-void roll_back_to_remembered_source_file_position(void) {
+static void _roll_back_to_remembered_source_file_position(void) {
 
   g_source_index = s_source_index_old;
   g_active_file_info_last->line_current = s_line_current_old;
@@ -1625,7 +1869,7 @@ void roll_back_to_remembered_source_file_position(void) {
 
 
 /* used by .RAMSECTIONs only */
-int add_label_sizeof(char *label, int size) {
+static int _add_label_sizeof(char *label, int size) {
 
   char tmpname[MAX_NAME_LENGTH + 8];
   struct label_sizeof *ls;
@@ -1637,7 +1881,7 @@ int add_label_sizeof(char *label, int size) {
   if (strcmp(".", label) == 0)
     return SUCCEEDED;
 
-  ls = calloc(sizeof(struct label_sizeof), 1);
+  ls = calloc(1, sizeof(struct label_sizeof));
   if (ls == NULL) {
     print_error(ERROR_DIR, "Out of memory error while allocating a label_sizeof structure.\n");
     return FAILED;
@@ -1690,7 +1934,7 @@ int add_label_to_enum_or_ramsection(char *name, int size) {
   else {
     /* sizeof pass */
     if (g_in_ramsection == YES) {
-      if (add_label_sizeof(name, size) == FAILED)
+      if (_add_label_sizeof(name, size) == FAILED)
         return FAILED;
     }
     else {
@@ -1734,7 +1978,7 @@ static int _add_paddingof_definition(char *name, int padding) {
 /* add all fields from a struct at the current offset in the enum/ramsection.
    this is used to construct enums or ramsections through temporary structs, even if
    INSTANCEOF isn't used. s_enum_sizeof_pass should be set to YES or NO before calling. */
-int enum_add_struct_fields(char *basename, struct structure *st, int reverse) {
+static int _enum_add_struct_fields(char *basename, struct structure *st, int reverse) {
 
   char tmp[MAX_NAME_LENGTH * 2 + 5];
   struct structure_item *si;
@@ -1786,7 +2030,7 @@ int enum_add_struct_fields(char *basename, struct structure *st, int reverse) {
         if (si->defined_size > 0)
           padding = si->defined_size - si->instance->size;
 
-        if (enum_add_struct_fields(tmp, si->instance, 0) == FAILED)
+        if (_enum_add_struct_fields(tmp, si->instance, 0) == FAILED)
           return FAILED;
 
         /* there is padding in the INSTANCEOF */
@@ -1836,7 +2080,7 @@ int enum_add_struct_fields(char *basename, struct structure *st, int reverse) {
             return FAILED;
           if (add_label_to_enum_or_ramsection(tmp, size) == FAILED)
             return FAILED;
-          if (enum_add_struct_fields(tmp, si->instance, 0) == FAILED)
+          if (_enum_add_struct_fields(tmp, si->instance, 0) == FAILED)
             return FAILED;
           g++;
 
@@ -1887,7 +2131,7 @@ int enum_add_struct_fields(char *basename, struct structure *st, int reverse) {
         else
           snprintf(union_basename, sizeof(union_basename), "%s", basename);
 
-        if (enum_add_struct_fields(union_basename, un, 0) == FAILED)
+        if (_enum_add_struct_fields(union_basename, un, 0) == FAILED)
           return FAILED;
 
         un = un->next;
@@ -1940,7 +2184,7 @@ static int _add_new_stack_item(char *tmpname, int size, int defined_size, int ty
   struct structure_item *si;
 
   /* add this label/value to the struct. */
-  si = calloc(sizeof(struct structure_item), 1);
+  si = calloc(1, sizeof(struct structure_item));
   if (si == NULL) {
     print_error(ERROR_DIR, "Out of memory while allocating a new STRUCT.\n");
     return FAILED;
@@ -1993,7 +2237,7 @@ int parse_enum_token(void) {
     struct union_stack *ust;
     int inz;
 
-    st = calloc(sizeof(struct structure), 1);
+    st = calloc(1, sizeof(struct structure));
     if (st == NULL) {
       print_error(ERROR_DIR, "PARSE_ENUM_TOKEN: Out of memory error.\n");
       return FAILED;
@@ -2017,7 +2261,7 @@ int parse_enum_token(void) {
       next_line();
 
     /* put previous union onto the "stack" */
-    ust = calloc(sizeof(struct union_stack), 1);
+    ust = calloc(1, sizeof(struct union_stack));
     if (ust == NULL) {
       print_error(ERROR_DIR, "PARSE_ENUM_TOKEN: Out of memory error.\n");
       free(st);
@@ -2047,7 +2291,7 @@ int parse_enum_token(void) {
     if (s_enum_offset > s_max_enum_offset)
       s_max_enum_offset = s_enum_offset;
     s_active_struct->size = s_enum_offset - s_union_base_offset;
-    st = calloc(sizeof(struct structure), 1);
+    st = calloc(1, sizeof(struct structure));
     if (st == NULL) {
       print_error(ERROR_DIR, "PARSE_ENUM_TOKEN: Out of memory error.\n");
       return FAILED;
@@ -2111,7 +2355,7 @@ int parse_enum_token(void) {
       s_max_enum_offset = s_enum_offset;
 
     /* create a new structure item of type STRUCTURE_ITEM_TYPE_UNION */
-    si = calloc(sizeof(struct structure_item), 1);
+    si = calloc(1, sizeof(struct structure_item));
     if (si == NULL) {
       print_error(ERROR_DIR, "PARSE_ENUM_TOKEN: Out of memory error.\n");
       return FAILED;
@@ -2136,12 +2380,12 @@ int parse_enum_token(void) {
     
     s_enum_offset = 0;
     s_enum_sizeof_pass = NO;
-    if (enum_add_struct_fields("", s_active_struct, (s_enum_ord == -1 ? 1 : 0)) == FAILED)
+    if (_enum_add_struct_fields("", s_active_struct, (s_enum_ord == -1 ? 1 : 0)) == FAILED)
       return FAILED;
 
     s_enum_offset = 0;
     s_enum_sizeof_pass = YES;
-    if (enum_add_struct_fields("", s_active_struct, (s_enum_ord == -1 ? 1 : 0)) == FAILED)
+    if (_enum_add_struct_fields("", s_active_struct, (s_enum_ord == -1 ? 1 : 0)) == FAILED)
       return FAILED;
 
     s_active_struct = NULL;
@@ -2158,13 +2402,13 @@ int parse_enum_token(void) {
     s_enum_offset = 0;
     s_last_enum_offset = 0;
     s_enum_sizeof_pass = NO;
-    if (enum_add_struct_fields("", s_active_struct, 0) == FAILED)
+    if (_enum_add_struct_fields("", s_active_struct, 0) == FAILED)
       return FAILED;
 
     s_enum_offset = 0;
     s_last_enum_offset = 0;
     s_enum_sizeof_pass = YES;
-    if (enum_add_struct_fields("", s_active_struct, 0) == FAILED)
+    if (_enum_add_struct_fields("", s_active_struct, 0) == FAILED)
       return FAILED;
 
     if (s_max_enum_offset > s_last_enum_offset)
@@ -2187,13 +2431,13 @@ int parse_enum_token(void) {
     s_enum_offset = 0;
     s_last_enum_offset = 0;
     s_enum_sizeof_pass = NO;
-    if (enum_add_struct_fields(s_active_struct->name, s_active_struct, 0) == FAILED)
+    if (_enum_add_struct_fields(s_active_struct->name, s_active_struct, 0) == FAILED)
       return FAILED;
 
     s_enum_offset = 0;
     s_last_enum_offset = 0;
     s_enum_sizeof_pass = YES;
-    if (enum_add_struct_fields(s_active_struct->name, s_active_struct, 0) == FAILED)
+    if (_enum_add_struct_fields(s_active_struct->name, s_active_struct, 0) == FAILED)
       return FAILED;
     
     /* create the SIZEOF-definition for the entire struct */
@@ -2267,6 +2511,16 @@ int parse_enum_token(void) {
     if (g_tmp[strlen(g_tmp) - 1] == ':')
       g_tmp[strlen(g_tmp) - 1] = 0;
     strcpy(tmpname, g_tmp);
+
+    if (g_in_struct == YES && g_tmp[1] == 0) {
+      char c = (char)toupper(g_tmp[0]);
+      
+      /* forbid some struct member names */
+      if (c == 'B' || c == 'W' || c == 'D' || c == 'L') {
+        print_error(ERROR_DIR, "'%c' doesn't work as a .STRUCT member name as the assembler confuses it with a size hint.\n", g_tmp[0]);
+        return FAILED;
+      }
+    }
 
     /* get the size/type */
     if (get_next_token() == FAILED)
@@ -2363,7 +2617,7 @@ int parse_enum_token(void) {
     while (1) {
       /* is the next token SIZE? */
       if (compare_next_token("SIZE") == SUCCEEDED) {
-        remember_current_source_file_position();
+        _remember_current_source_file_position();
 
         skip_next_token();
 
@@ -2372,7 +2626,7 @@ int parse_enum_token(void) {
           return FAILED;
         if (q != SUCCEEDED) {
           /* SIZE was actually a field? roll back */
-          roll_back_to_remembered_source_file_position();
+          _roll_back_to_remembered_source_file_position();
 
           break;
         }
@@ -2390,7 +2644,7 @@ int parse_enum_token(void) {
         }
       }
       else if (compare_next_token("COUNT") == SUCCEEDED) {
-        remember_current_source_file_position();
+        _remember_current_source_file_position();
 
         skip_next_token();
 
@@ -2399,7 +2653,7 @@ int parse_enum_token(void) {
           return FAILED;
         if (q != SUCCEEDED) {
           /* COUNT was actually a field? roll back */
-          roll_back_to_remembered_source_file_position();
+          _roll_back_to_remembered_source_file_position();
 
           break;
         }
@@ -2413,7 +2667,7 @@ int parse_enum_token(void) {
         }
       }
       else if (compare_next_token("STARTFROM") == SUCCEEDED) {
-        remember_current_source_file_position();
+        _remember_current_source_file_position();
         
         skip_next_token();
 
@@ -2423,7 +2677,7 @@ int parse_enum_token(void) {
           return FAILED;
         if (q != SUCCEEDED) {
           /* STARTFROM was actually a field? roll back */
-          roll_back_to_remembered_source_file_position();
+          _roll_back_to_remembered_source_file_position();
 
           break;
         }
@@ -2459,7 +2713,7 @@ int parse_enum_token(void) {
         }
 
         /* test for EOL */
-        remember_current_source_file_position();
+        _remember_current_source_file_position();
 
         q = input_number();
         if (q == INPUT_NUMBER_EOL) {
@@ -2468,7 +2722,7 @@ int parse_enum_token(void) {
         }
         else {
           /* this is not yet the end */
-          roll_back_to_remembered_source_file_position();
+          _roll_back_to_remembered_source_file_position();
         }
       }      
     }
@@ -2563,7 +2817,7 @@ int parse_enum_token(void) {
 }
 
 
-int directive_org(void) {
+static int _directive_org(void) {
 
   int q;
   
@@ -2592,6 +2846,16 @@ int directive_org(void) {
     return FAILED;
   }
 
+#if defined(MC68000)
+  if (g_bank == 0 && g_slots[g_current_slot].address == 0 && g_parsed_int == 0) {
+    if (g_mdvectors_defined == YES) {
+      print_error(ERROR_DIR, ".MDVECTORS emits the vector table at $000000; don't also place code or data with .ORG 0.\n");
+      return FAILED;
+    }
+    g_md_org0_defined = YES;
+  }
+#endif
+
   g_org_defined = 1;
   fprintf(g_file_out_ptr, "O%d ", g_parsed_int);
 
@@ -2599,7 +2863,7 @@ int directive_org(void) {
 }
 
 
-int directive_orga(void) {
+static int _directive_orga(void) {
 
   int q, current_slot_address;
   
@@ -2632,10 +2896,20 @@ int directive_orga(void) {
 
   current_slot_address = g_slots[g_current_slot].address;
   if (g_parsed_int < current_slot_address || g_parsed_int > (current_slot_address + g_slots[g_current_slot].size)) {
-    print_error(ERROR_DIR, ".ORGA ($%.4x) is outside the current SLOT (%d, [$%.4x - $%.4x]).\n", g_parsed_int, g_current_slot,
+    print_error(ERROR_DIR, ".ORGA ($%.8x) is outside the current SLOT (%d, [$%.8x - $%.8x]).\n", g_parsed_int, g_current_slot,
                 current_slot_address, (unsigned int)(current_slot_address + g_slots[g_current_slot].size - 1));
     return FAILED;
   }
+
+#if defined(MC68000)
+  if (g_bank == 0 && g_parsed_int == 0) {
+    if (g_mdvectors_defined == YES) {
+      print_error(ERROR_DIR, ".MDVECTORS emits the vector table at $000000; don't also place code or data with .ORGA 0.\n");
+      return FAILED;
+    }
+    g_md_org0_defined = YES;
+  }
+#endif
 
   fprintf(g_file_out_ptr, "O%d ", g_parsed_int - current_slot_address);
 
@@ -2643,7 +2917,7 @@ int directive_orga(void) {
 }
 
 
-int directive_slot(void) {
+static int _directive_slot(void) {
 
   int q;
   
@@ -2691,7 +2965,7 @@ int directive_slot(void) {
 }
 
 
-int directive_bank(void) {
+static int _directive_bank(void) {
 
   int q, bank, slot;
   
@@ -2780,7 +3054,7 @@ int directive_bank(void) {
 }
 
 
-int directive_dbm_dwm_dlm_ddm_filter(void) {
+static int _directive_dbm_dwm_dlm_ddm_filter(void) {
 
   struct macro_static *macro;
 
@@ -2831,7 +3105,7 @@ int directive_dbm_dwm_dlm_ddm_filter(void) {
 }
 
 
-int directive_table(void) {
+static int _directive_table(void) {
 
   char bak[256];
   int result, i;
@@ -2939,7 +3213,7 @@ int directive_table(void) {
 }
 
 
-int directive_row_data(void) {
+static int _directive_row_data(void) {
 
   char bak[256];
   int rows = 0, result, i;
@@ -3100,7 +3374,7 @@ int directive_row_data(void) {
 }
 
 
-int directive_db_byt_byte(void) {
+static int _directive_db_byt_byte(void) {
 
   char bak[256];
   int i, char_index, number_result;
@@ -3159,7 +3433,7 @@ static int _char_to_hex(char e) {
 }
 
 
-int directive_hex(void) {
+static int _directive_hex(void) {
 
   int i, o, nybble_2 = 0, error, number_result, is_block = NO, is_done = NO;
 
@@ -3248,7 +3522,7 @@ int directive_hex(void) {
 }
 
 
-int directive_bits(void) {
+static int _directive_bits(void) {
 
   int bits, q;
 
@@ -3315,7 +3589,7 @@ int directive_bits(void) {
 }
 
 
-int directive_align(void) {
+static int _directive_align(void) {
 
   int q, address, align, remainder;
   struct section_def *s;
@@ -3335,8 +3609,8 @@ int directive_align(void) {
   if (data_stream_parser_parse() == FAILED)
     return FAILED;
 
-  s = data_stream_parser_get_current_section();
-  address = data_stream_parser_get_current_address();
+  s = data_stream_parser_get_section();
+  address = data_stream_parser_get_address();
   
   if (s != NULL) {
     /* check if the section works with .ALIGN */
@@ -3376,7 +3650,7 @@ int directive_align(void) {
 }
 
 
-int directive_asctable_asciitable(void) {
+static int _directive_asctable_asciitable(void) {
   
   int astart, aend, q, o, token_result;
   char bak[256];
@@ -3509,7 +3783,7 @@ int directive_asctable_asciitable(void) {
 }
 
 
-int directive_asc(void) {
+static int _directive_asc(void) {
 
   int o, map_only_strings = NO;
   char bak[256];
@@ -3573,7 +3847,7 @@ int directive_asc(void) {
 }
 
 
-int directive_dw_word_addr(void) {
+static int _directive_dw_word_addr(void) {
 
   int i, number_result;
   char bak[256];
@@ -3612,7 +3886,7 @@ int directive_dw_word_addr(void) {
 }
 
 
-int directive_dl_long_faraddr(void) {
+static int _directive_dl_long_faraddr(void) {
 
   int i, number_result;
   char bak[256];
@@ -3651,7 +3925,7 @@ int directive_dl_long_faraddr(void) {
 }
 
 
-int directive_dsl(void) {
+static int _directive_dsl(void) {
 
   int q, parsed_int;
   
@@ -3706,7 +3980,7 @@ int directive_dsl(void) {
 }
 
 
-int directive_dd(void) {
+static int _directive_dd(void) {
 
   int i, number_result;
   char bak[256];
@@ -3747,7 +4021,7 @@ int directive_dd(void) {
 }
 
 
-int directive_dsd(void) {
+static int _directive_dsd(void) {
 
   int q, parsed_int;
   
@@ -3806,7 +4080,7 @@ int directive_dsd(void) {
 
 #if defined(W65816)
 
-int directive_name_w65816(void) {
+static int _directive_name_w65816(void) {
 
   int token_result;
 
@@ -3863,7 +4137,7 @@ int directive_name_w65816(void) {
 
 /* this is used for legacy .DSTRUCT syntax, and only for generating labels in the new
  * .DSTRUCT syntax. */
-int parse_dstruct_entry(char *iname, struct structure *s, int *labels_only, int generate_labels) {
+static int _parse_dstruct_entry(char *iname, struct structure *s, int *labels_only, int generate_labels) {
 
   char tmpname[MAX_NAME_LENGTH*2+10];
   struct structure_item *it;
@@ -3886,7 +4160,7 @@ int parse_dstruct_entry(char *iname, struct structure *s, int *labels_only, int 
       if (get_full_label(tmpname, full_label) == FAILED)
         return FAILED;
       if (generate_labels == YES) {
-        if (add_label_sizeof(full_label, it->size) == FAILED)
+        if (_add_label_sizeof(full_label, it->size) == FAILED)
           return FAILED;
       }
     }
@@ -3915,14 +4189,14 @@ int parse_dstruct_entry(char *iname, struct structure *s, int *labels_only, int 
             if (get_full_label(tmpname, full_label) == FAILED)
               return FAILED;
             if (generate_labels == YES) {
-              if (add_label_sizeof(full_label, us->size) == FAILED)
+              if (_add_label_sizeof(full_label, us->size) == FAILED)
                 return FAILED;
             }
           }
           else
             strcpy(tmpname, iname);
 
-          parse_dstruct_entry(tmpname, us, labels_only, generate_labels);
+          _parse_dstruct_entry(tmpname, us, labels_only, generate_labels);
 
           /* rewind */
           fprintf(g_file_out_ptr, "o%d 0 ", -us->size);
@@ -3941,7 +4215,7 @@ int parse_dstruct_entry(char *iname, struct structure *s, int *labels_only, int 
         return FAILED;
 
       if (it->num_instances == 1) {
-        if (parse_dstruct_entry(tmpname, it->instance, labels_only, generate_labels) == FAILED)
+        if (_parse_dstruct_entry(tmpname, it->instance, labels_only, generate_labels) == FAILED)
           return FAILED;
       }
       else {
@@ -3950,7 +4224,7 @@ int parse_dstruct_entry(char *iname, struct structure *s, int *labels_only, int 
         snprintf(tmpname, sizeof(tmpname), "%s.%s", iname, it->name);
       
         /* we have "struct.instance" and "struct.1.instance" referencing the same data. */
-        parse_dstruct_entry(tmpname, it->instance, &labels_only_tmp, generate_labels);
+        _parse_dstruct_entry(tmpname, it->instance, &labels_only_tmp, generate_labels);
 
         /* return to start of struct */
         fprintf(g_file_out_ptr, "o%d 0 ", -it->instance->size);
@@ -3969,10 +4243,10 @@ int parse_dstruct_entry(char *iname, struct structure *s, int *labels_only, int 
             fprintf(g_file_out_ptr, "k%d L%s ", g_active_file_info_last->line_current, tmpname);
 
           if (generate_labels == YES) {
-            if (add_label_sizeof(tmpname, size) == FAILED)
+            if (_add_label_sizeof(tmpname, size) == FAILED)
               return FAILED;
           }
-          if (parse_dstruct_entry(tmpname, it->instance, labels_only, generate_labels) == FAILED)
+          if (_parse_dstruct_entry(tmpname, it->instance, labels_only, generate_labels) == FAILED)
             return FAILED;
         }
       }
@@ -4089,7 +4363,7 @@ int parse_dstruct_entry(char *iname, struct structure *s, int *labels_only, int 
 /* search for "field_name" within a structure. return the corresponding structure_item and
    the offset within the structure it's located at. recurses through instanceof's and
    unions. */
-int find_struct_field(struct structure *s, char *field_name, int *item_size, int *field_offset) {
+static int _find_struct_field(struct structure *s, char *field_name, int *item_size, int *field_offset) {
 
   int offset = 0;
   char prefix[MAX_NAME_LENGTH + 1];
@@ -4120,14 +4394,14 @@ int find_struct_field(struct structure *s, char *field_name, int *item_size, int
             return SUCCEEDED;
           }
           if (after_dot != NULL && strcmp(prefix, us->name) == 0) {
-            if (find_struct_field(us, after_dot, item_size, field_offset) == SUCCEEDED) {
+            if (_find_struct_field(us, after_dot, item_size, field_offset) == SUCCEEDED) {
               *field_offset += offset;
               return SUCCEEDED;
             }
           }
         }
         /* no name */
-        else if (find_struct_field(us, field_name, item_size, field_offset) == SUCCEEDED) {
+        else if (_find_struct_field(us, field_name, item_size, field_offset) == SUCCEEDED) {
           *field_offset += offset;
           return SUCCEEDED;
         }
@@ -4142,7 +4416,7 @@ int find_struct_field(struct structure *s, char *field_name, int *item_size, int
     /* look for prefix for an ".instanceof" */
     else if (after_dot != NULL && strcmp(prefix, si->name) == 0) {
       if (si->type == STRUCTURE_ITEM_TYPE_INSTANCEOF) {
-        if (find_struct_field(si->instance, after_dot, item_size, field_offset) == SUCCEEDED) {
+        if (_find_struct_field(si->instance, after_dot, item_size, field_offset) == SUCCEEDED) {
           *field_offset += offset;
           return SUCCEEDED;
         }
@@ -4167,7 +4441,7 @@ int find_struct_field(struct structure *s, char *field_name, int *item_size, int
                 return SUCCEEDED;
               }
               /* only prefix matched */
-              if (after_dot[strlen(num_str)] == '.' && find_struct_field(si->instance, after_dot + strlen(num_str) + 1, item_size, field_offset) == SUCCEEDED) {
+              if (after_dot[strlen(num_str)] == '.' && _find_struct_field(si->instance, after_dot + strlen(num_str) + 1, item_size, field_offset) == SUCCEEDED) {
                 *field_offset += offset + (g-1) * size;
                 return SUCCEEDED;
               }
@@ -4208,7 +4482,7 @@ static void _generate_dstruct_padding(struct structure *s, int supplied_size) {
 }
 
 
-int directive_dstruct(void) {
+static int _directive_dstruct(void) {
 
   int q, q2, supplied_size, labels_only, generate_labels = YES;
   char iname[MAX_NAME_LENGTH*2+5];
@@ -4320,7 +4594,7 @@ int directive_dstruct(void) {
     if (supplied_size > 0)
       size = supplied_size;
     
-    if (add_label_sizeof(full_label, size) == FAILED)
+    if (_add_label_sizeof(full_label, size) == FAILED)
       return FAILED;
     if (supplied_size > 0) {
       q = supplied_size - s->size;
@@ -4359,7 +4633,7 @@ int directive_dstruct(void) {
           g_tmp[strlen(g_tmp)-1] = '\0';
         strcpy(field_name, g_tmp);
 
-        if (find_struct_field(s, field_name, &item_size, &field_offset) == FAILED) {
+        if (_find_struct_field(s, field_name, &item_size, &field_offset) == FAILED) {
           print_error(ERROR_DIR, ".DSTRUCT: Couldn't find field \"%s\" in structure \"%s\".\n", field_name, s->name);
           return FAILED;
         }
@@ -4395,7 +4669,7 @@ int directive_dstruct(void) {
     if (iname[0] != '\0') {
       if (generate_labels == YES) {
         labels_only = YES;
-        if (parse_dstruct_entry(iname, s, &labels_only, YES) == FAILED)
+        if (_parse_dstruct_entry(iname, s, &labels_only, YES) == FAILED)
           return FAILED;
       }
     }
@@ -4425,7 +4699,7 @@ int directive_dstruct(void) {
   }
   
   labels_only = NO;
-  if (parse_dstruct_entry(iname, s, &labels_only, generate_labels) == FAILED)
+  if (_parse_dstruct_entry(iname, s, &labels_only, generate_labels) == FAILED)
     return FAILED;
   
   /* generate padding */
@@ -4442,7 +4716,7 @@ int directive_dstruct(void) {
 }
 
 
-int directive_dsb_ds(void) {
+static int _directive_dsb_ds(void) {
 
   char bak[256];
   int q, parsed_int;
@@ -4500,7 +4774,7 @@ int directive_dsb_ds(void) {
 }
 
 
-int directive_dsw(void) {
+static int _directive_dsw(void) {
 
   int q, parsed_int;
 
@@ -4555,7 +4829,7 @@ int directive_dsw(void) {
 }
 
 
-int directive_incdir(void) {
+static int _directive_incdir(void) {
   
   int q, o;
   char *c;
@@ -4617,7 +4891,7 @@ static int _remember_namespace(char *name) {
 
   struct namespace *nspace;
   
-  nspace = calloc(sizeof(struct namespace), 1);
+  nspace = calloc(1, sizeof(struct namespace));
   if (nspace == NULL) {
     print_error(ERROR_DIR, "Out of memory while remembering namespace \"%s\".\n", name);
     return FAILED;
@@ -4672,7 +4946,7 @@ void get_dir(char *full_path, char *tmp) {
 }
 
 
-int directive_include(int is_real) {
+static int _directive_include(int is_real) {
 
   int o, include_size = 0, accumulated_name_length = 0, character_c_position = 0, got_once = NO, is_full_path = NO;
   char namespace[MAX_NAME_LENGTH + 1], path[MAX_NAME_LENGTH + 1], accumulated_name[MAX_NAME_LENGTH + 1];
@@ -4829,7 +5103,7 @@ int directive_include(int is_real) {
 }
 
 
-int directive_incbin(void) {
+static int _directive_incbin(void) {
 
   int skip, read, j, o, id, swap, filter_size;
   char tmp[MAX_NAME_LENGTH + 1];
@@ -4867,7 +5141,7 @@ int directive_incbin(void) {
     struct incbin_file_data *ifd;
     struct macro_incbin *min;
 
-    min = calloc(sizeof(struct macro_incbin), 1);
+    min = calloc(1, sizeof(struct macro_incbin));
     if (min == NULL) {
       print_error(ERROR_NONE, "Out of memory error while starting to filter the .INCBINed data.\n");
       return FAILED;
@@ -4891,7 +5165,7 @@ int directive_incbin(void) {
 }
 
 
-int directive_struct(void) {
+static int _directive_struct(void) {
 
   int q;
   
@@ -4900,7 +5174,7 @@ int directive_struct(void) {
     return FAILED;
   }
 
-  s_active_struct = calloc(sizeof(struct structure), 1);
+  s_active_struct = calloc(1, sizeof(struct structure));
   if (s_active_struct == NULL) {
     print_error(ERROR_DIR, "Out of memory while allocating a new .STRUCT.\n");
     return FAILED;
@@ -4928,7 +5202,7 @@ int directive_struct(void) {
     /* we have fixed size for this .STRUCT ? */
     int q;
 
-    remember_current_source_file_position();
+    _remember_current_source_file_position();
     
     skip_next_token();
     
@@ -4937,7 +5211,7 @@ int directive_struct(void) {
       return FAILED;
     if (q != SUCCEEDED) {
       /* SIZE was actually a field in the .STRUCT? roll back */
-      roll_back_to_remembered_source_file_position();
+      _roll_back_to_remembered_source_file_position();
     }
     else {
       if (g_parsed_int < 1) {
@@ -4963,7 +5237,7 @@ int directive_struct(void) {
 }
 
 
-int directive_ramsection(void) {
+static int _directive_ramsection(void) {
 
   int q, orga_given = -1;
   char c1;
@@ -4980,7 +5254,7 @@ int directive_ramsection(void) {
   if (get_next_token() == FAILED)
     return FAILED;
 
-  g_sec_tmp = calloc(sizeof(struct section_def), 1);
+  g_sec_tmp = calloc(1, sizeof(struct section_def));
   if (g_sec_tmp == NULL) {
     print_error(ERROR_DIR, "Out of memory while allocating room for a new RAMSECTION \"%s\".\n", g_tmp);
     return FAILED;
@@ -5099,6 +5373,10 @@ int directive_ramsection(void) {
       }
 
       g_sec_tmp->base = g_parsed_int;
+
+      /* .ENDS restores the backup */
+      g_base_backup = g_base;
+      g_base = g_parsed_int;
     }
     else if (compare_next_token("SLOT") == SUCCEEDED) {
       if (g_output_format == OUTPUT_LIBRARY) {
@@ -5206,7 +5484,7 @@ int directive_ramsection(void) {
       g_sec_tmp->window_end = g_parsed_int;
 
       if (g_sec_tmp->window_start > g_sec_tmp->window_end) {
-        print_error(ERROR_DIR, "The start ($%.4x) of the WINDOW is bigger than the end ($%.4x).\n", g_sec_tmp->window_start, g_sec_tmp->window_end);
+        print_error(ERROR_DIR, "The start ($%.8x) of the WINDOW is bigger than the end ($%.8x).\n", g_sec_tmp->window_start, g_sec_tmp->window_end);
         return FAILED;
       }
     }
@@ -5298,7 +5576,7 @@ int directive_ramsection(void) {
       if (skip_next_token() == FAILED)
         return FAILED;
     
-      after_tmp = calloc(sizeof(struct after_section), 1);
+      after_tmp = calloc(1, sizeof(struct after_section));
       if (after_tmp == NULL) {
         print_error(ERROR_DIR, "Out of memory while allocating room for a new APPENDTO \"%s\".\n", g_tmp);
         return FAILED;
@@ -5343,7 +5621,7 @@ int directive_ramsection(void) {
       if (skip_next_token() == FAILED)
         return FAILED;
     
-      after_tmp = calloc(sizeof(struct after_section), 1);
+      after_tmp = calloc(1, sizeof(struct after_section));
       if (after_tmp == NULL) {
         print_error(ERROR_DIR, "Out of memory while allocating room for a new AFTER \"%s\".\n", g_tmp);
         return FAILED;
@@ -5410,7 +5688,7 @@ int directive_ramsection(void) {
   s_enum_ord = 1;
 
   /* setup s_active_struct (ramsection vars stored here temporarily) */
-  s_active_struct = calloc(sizeof(struct structure), 1);
+  s_active_struct = calloc(1, sizeof(struct structure));
   if (s_active_struct == NULL) {
     print_error(ERROR_DIR, "Out of memory while parsing .RAMSECTION.\n");
     return FAILED;
@@ -5433,7 +5711,7 @@ int directive_ramsection(void) {
     int current_slot_address = g_slots[g_sec_tmp->slot].address;
 
     if (orga_given < current_slot_address || orga_given >= (current_slot_address + g_slots[g_sec_tmp->slot].size)) {
-      print_error(ERROR_DIR, ".ORGA ($%.4x) is outside the current SLOT (%d, [$%.4x - $%.4x]).\n", orga_given, g_sec_tmp->slot,
+      print_error(ERROR_DIR, ".ORGA ($%.8x) is outside the current SLOT (%d, [$%.8x - $%.8x]).\n", orga_given, g_sec_tmp->slot,
                   current_slot_address, (unsigned int)(current_slot_address + g_slots[g_sec_tmp->slot].size - 1));
       return FAILED;
     }
@@ -5445,7 +5723,7 @@ int directive_ramsection(void) {
 }
 
 
-int directive_section(void) {
+static int _directive_section(void) {
 
   int l, q, org_given = -1, orga_given = -1;
   char c1;
@@ -5474,7 +5752,7 @@ int directive_section(void) {
   if (g_output_format == OUTPUT_LIBRARY)
     g_org_defined = 1;
 
-  g_sec_tmp = calloc(sizeof(struct section_def), 1);
+  g_sec_tmp = calloc(1, sizeof(struct section_def));
   if (g_sec_tmp == NULL) {
     print_error(ERROR_DIR, "Out of memory while allocating room for a new SECTION \"%s\".\n", g_tmp);
     return FAILED;
@@ -5665,6 +5943,10 @@ int directive_section(void) {
       }
 
       g_sec_tmp->base = g_parsed_int;
+
+      /* .ENDS restores the backup */
+      g_base_backup = g_base;
+      g_base = g_parsed_int;
     }
     /* bank? */
     else if (compare_next_token("BANK") == SUCCEEDED) {
@@ -5756,7 +6038,7 @@ int directive_section(void) {
       g_sec_tmp->window_end = g_parsed_int;
 
       if (g_sec_tmp->window_start > g_sec_tmp->window_end) {
-        print_error(ERROR_DIR, "The start ($%.4x) of the WINDOW is bigger than the end ($%.4x).\n", g_sec_tmp->window_start, g_sec_tmp->window_end);
+        print_error(ERROR_DIR, "The start ($%.8x) of the WINDOW is bigger than the end ($%.8x).\n", g_sec_tmp->window_start, g_sec_tmp->window_end);
         return FAILED;
       }
     }
@@ -5859,7 +6141,7 @@ int directive_section(void) {
       if (skip_next_token() == FAILED)
         return FAILED;
 
-      after_tmp = calloc(sizeof(struct after_section), 1);
+      after_tmp = calloc(1, sizeof(struct after_section));
       if (after_tmp == NULL) {
         print_error(ERROR_DIR, "Out of memory while allocating room for a new APPENDTO \"%s\".\n", g_tmp);
         return FAILED;
@@ -5908,7 +6190,7 @@ int directive_section(void) {
       if (skip_next_token() == FAILED)
         return FAILED;
     
-      after_tmp = calloc(sizeof(struct after_section), 1);
+      after_tmp = calloc(1, sizeof(struct after_section));
       if (after_tmp == NULL) {
         print_error(ERROR_DIR, "Out of memory while allocating room for a new AFTER \"%s\".\n", g_tmp);
         return FAILED;
@@ -6009,7 +6291,7 @@ int directive_section(void) {
     int current_slot_address = g_slots[g_sec_tmp->slot].address;
     
     if (orga_given < current_slot_address || orga_given > (current_slot_address + g_slots[g_sec_tmp->slot].size)) {
-      print_error(ERROR_DIR, ".ORGA ($%.4x) is outside the current SLOT (%d, [$%.4x - $%.4x]).\n", orga_given, g_sec_tmp->slot,
+      print_error(ERROR_DIR, ".ORGA ($%.8x) is outside the current SLOT (%d, [$%.8x - $%.8x]).\n", orga_given, g_sec_tmp->slot,
                   current_slot_address, (unsigned int)(current_slot_address + g_slots[g_sec_tmp->slot].size - 1));
       return FAILED;
     }
@@ -6031,7 +6313,7 @@ int directive_section(void) {
 }
 
 
-int directive_fopen(void) {
+static int _directive_fopen(void) {
   
   struct filepointer *f;
   struct string *string;
@@ -6068,7 +6350,7 @@ int directive_fopen(void) {
 
   if (string == NULL) {
     /* remember the file name for makefile generation */
-    string = calloc(sizeof(struct string), 1);
+    string = calloc(1, sizeof(struct string));
     if (string == NULL) {
       print_error(ERROR_DIR, "Out of memory error.\n");
       free(c);
@@ -6121,7 +6403,7 @@ int directive_fopen(void) {
   }
   else {
     /* allocate a new filepointer */
-    f = calloc(sizeof(struct filepointer), 1);
+    f = calloc(1, sizeof(struct filepointer));
     if (f == NULL) {
       print_error(ERROR_DIR, "Out of memory error.\n");
       free(c);
@@ -6138,7 +6420,9 @@ int directive_fopen(void) {
   strcpy(f->name, g_tmp);
 
   /* open the file */
-  o = find_file(f->filename, &(f->f), NO);
+  o = find_file(f->filename, &(f->f), NO, "rb");
+  if (o == FAILED)
+    return FAILED;
   if (f->f == NULL) {
     if (g_makefile_skip_file_handling == YES) {
       /* lets just use a tmp file for file operations */
@@ -6158,7 +6442,7 @@ int directive_fopen(void) {
 }
 
 
-int directive_fclose(void) {
+static int _directive_fclose(void) {
   
   struct filepointer *f, **t;
 
@@ -6194,7 +6478,7 @@ int directive_fclose(void) {
 }
 
 
-int directive_fsize(void) {
+static int _directive_fsize(void) {
   
   struct filepointer *f;
   long l, b;
@@ -6232,7 +6516,7 @@ int directive_fsize(void) {
 }
 
 
-int directive_ftell(void) {
+static int _directive_ftell(void) {
   
   struct filepointer *f;
   long b;
@@ -6272,7 +6556,7 @@ int directive_ftell(void) {
 }
 
 
-int directive_fseek(void) {
+static int _directive_fseek(void) {
   
   struct filepointer *f;
   long position;
@@ -6329,7 +6613,7 @@ int directive_fseek(void) {
 }
 
 
-int directive_fread(void) {
+static int _directive_fread(void) {
   
   struct filepointer *f;
   unsigned char c;
@@ -6366,7 +6650,7 @@ int directive_fread(void) {
 }
 
 
-int directive_block(void) {
+static int _directive_block(void) {
 
   struct block_name *b;
   int token_result;
@@ -6379,7 +6663,7 @@ int directive_block(void) {
     return FAILED;
   }
 
-  b = calloc(sizeof(struct block_name), 1);
+  b = calloc(1, sizeof(struct block_name));
   if (b == NULL) {
     print_error(ERROR_DIR, "Out of memory while allocating block name.\n");
     return FAILED;
@@ -6398,7 +6682,7 @@ int directive_block(void) {
 }
 
 
-int directive_shift(void) {
+static int _directive_shift(void) {
 
   struct macro_argument *ma;
   struct macro_runtime *rt;
@@ -6463,7 +6747,7 @@ int directive_shift(void) {
 
 #if defined(GB)
 
-int directive_name_gb(void) {
+static int _directive_name_gb(void) {
 
   int token_result;
 
@@ -6518,7 +6802,7 @@ int directive_name_gb(void) {
 #endif
 
 
-int directive_rombanks(void) {
+static int _directive_rombanks(void) {
 
   int i, q, bank_address;
 
@@ -6600,7 +6884,7 @@ int directive_rombanks(void) {
 }
 
 
-int directive_rombankmap(void) {
+static int _directive_rombankmap(void) {
   
   int b = 0, a = 0, bt = 0, bt_defined = 0, x, bs = 0, bs_defined = 0, o, q, token_result;
 
@@ -6840,7 +7124,7 @@ int directive_rombankmap(void) {
 }
 
 
-int directive_memorymap(void) {
+static int _directive_memorymap(void) {
   
   int slotsize = 0, slotsize_defined = 0, s = 0, q, o, token_result;
 
@@ -7045,7 +7329,7 @@ int directive_memorymap(void) {
 }
 
 
-int directive_unbackground(void) {
+static int _directive_unbackground(void) {
   
   int start, end, q;
 
@@ -7103,7 +7387,7 @@ int directive_unbackground(void) {
 }
 
 
-int directive_background(void) {
+static int _directive_background(void) {
   
   FILE *file_in_ptr;
   int q, background_size;
@@ -7172,7 +7456,7 @@ int directive_background(void) {
 
 #if defined(GB)
 
-int directive_gbheader(void) {
+static int _directive_gbheader(void) {
 
   int q, token_result;
     
@@ -7511,7 +7795,7 @@ static struct array *_create_array(char *name, int size) {
   struct array *arr;
   int i, *data;
   
-  arr = calloc(sizeof(struct array), 1);
+  arr = calloc(1, sizeof(struct array));
   if (arr == NULL) {
     print_error(ERROR_DIR, "Out of memory while allocating a new array.\n");
     return NULL;
@@ -7542,7 +7826,7 @@ static struct array *_create_array(char *name, int size) {
 }
 
 
-int directive_arraydef_arraydefine(void) {
+static int _directive_arraydef_arraydefine(void) {
 
   char name[MAX_NAME_LENGTH + 1], bak[256];
   struct array *arr;
@@ -7631,7 +7915,7 @@ int directive_arraydef_arraydefine(void) {
 }
 
 
-int directive_arrayin(void) {
+static int _directive_arrayin(void) {
 
   struct array *arr;
   int index, value, q;
@@ -7715,7 +7999,7 @@ int directive_arrayin(void) {
 }
 
 
-int directive_arrayout(void) {
+static int _directive_arrayout(void) {
 
   struct array *arr;
   int index, q;
@@ -7773,7 +8057,7 @@ int directive_arrayout(void) {
 }
 
 
-int directive_arraydb_arraydw_arraydl_arraydd(void) {
+static int _directive_arraydb_arraydw_arraydl_arraydd(void) {
 
   struct array *arr;
   int index = 0, q, i = 0, data_size;
@@ -7981,23 +8265,84 @@ int directive_arraydb_arraydw_arraydl_arraydd(void) {
 }
 
 
-int directive_function(void) {
+static int _is_built_in_function_name(char *function_name) {
+
+  char *built_in_function_names[] = {
+    "asc",
+    "min",
+    "max",
+    "random",
+    "defined",
+    "definedmacro",
+    "definedfunction",
+    "exists",
+    "blank",
+    "match",
+    "xmatch",
+    "left",
+    "mid",
+    "right",
+    "tcount",
+    "lobyte",
+    "hibyte",
+    "loword",
+    "hiword",
+    "bankbyte",
+    "bank",
+    "base",
+    "slot",
+    "round",
+    "ceil",
+    "floor",
+    "sqrt",
+    "cos",
+    "sin",
+    "tan",
+    "acos",
+    "asin",
+    "atan",
+    "atan2",
+    "cosh",
+    "sinh",
+    "tanh",
+    "log",
+    "log10",
+    "pow",
+    "clamp",
+    "sign",
+    "is",
+    "get",
+    "org",
+    "orga",
+    "substring",
+    "abs",
+    NULL
+  };
+  int i;
+
+  for (i = 0; built_in_function_names[i] != NULL; i++) {
+    if (strcaselesscmp(built_in_function_names[i], function_name) == 0)
+      return YES;
+  }
+
+  return NO;
+}
+
+
+static int _directive_function_with_name(char *function_name, int opening_parenthesis_read) {
   
   char name[MAX_NAME_LENGTH+1];
   struct function *f;
   int res;
   char c1;
 
-  if (get_next_plain_string() == FAILED)
-    return FAILED;
-
   /* do we already have a function with that name? */
-  c1 = g_label[0];
+  c1 = function_name[0];
   f = g_functions_first;
   while (f != NULL) {
     if (c1 == f->name[0]) {
-      if (strcmp(g_label, f->name) == 0) {
-        print_error(ERROR_DIR, ".FUNCTION called \"%s\" exists already!\n", g_label);
+      if (strcmp(function_name, f->name) == 0) {
+        print_error(ERROR_DIR, ".FUNCTION called \"%s\" exists already!\n", function_name);
         return FAILED;
       }
     }
@@ -8005,52 +8350,14 @@ int directive_function(void) {
   }
 
   /* also check built-in function names */
-  if (strcmp("asc", g_label) == 0 ||
-      strcmp("min", g_label) == 0 ||
-      strcmp("max", g_label) == 0 ||
-      strcmp("random", g_label) == 0 ||
-      strcmp("defined", g_label) == 0 ||
-      strcmp("exists", g_label) == 0 ||
-      strcmp("lobyte", g_label) == 0 ||
-      strcmp("hibyte", g_label) == 0 ||
-      strcmp("loword", g_label) == 0 ||
-      strcmp("hiword", g_label) == 0 ||
-      strcmp("bankbyte", g_label) == 0 ||
-      strcmp("bank", g_label) == 0 ||
-      strcmp("base", g_label) == 0 ||
-      strcmp("slot", g_label) == 0 ||
-      strcmp("round", g_label) == 0 ||
-      strcmp("ceil", g_label) == 0 ||
-      strcmp("floor", g_label) == 0 ||
-      strcmp("sqrt", g_label) == 0 ||
-      strcmp("cos", g_label) == 0 ||
-      strcmp("sin", g_label) == 0 ||
-      strcmp("tan", g_label) == 0 ||
-      strcmp("acos", g_label) == 0 ||
-      strcmp("asin", g_label) == 0 ||
-      strcmp("atan", g_label) == 0 ||
-      strcmp("atan2", g_label) == 0 ||
-      strcmp("cosh", g_label) == 0 ||
-      strcmp("sinh", g_label) == 0 ||
-      strcmp("tanh", g_label) == 0 ||
-      strcmp("log", g_label) == 0 ||
-      strcmp("log10", g_label) == 0 ||
-      strcmp("pow", g_label) == 0 ||
-      strcmp("clamp", g_label) == 0 ||
-      strcmp("sign", g_label) == 0 ||
-      strcmp("is", g_label) == 0 ||
-      strcmp("get", g_label) == 0 ||
-      strcmp("org", g_label) == 0 ||
-      strcmp("orga", g_label) == 0 ||
-      strcmp("substring", g_label) == 0 ||
-      strcmp("abs", g_label) == 0) {
-    print_error(ERROR_DIR, "You cannot redefine a built-in .FUNCTION \"%s\"!\n", g_label);
+  if (_is_built_in_function_name(function_name) == YES) {
+    print_error(ERROR_DIR, "You cannot redefine a built-in .FUNCTION \"%s\"!\n", function_name);
     return FAILED;
   }
 
-  strcpy(name, g_label);
+  strcpy(name, function_name);
   
-  f = calloc(sizeof(struct function), 1);
+  f = calloc(1, sizeof(struct function));
   if (f == NULL) {
     print_error(ERROR_DIR, "Out of memory while allocating a new function.\n");
     return FAILED;
@@ -8072,7 +8379,7 @@ int directive_function(void) {
     g_functions_last = f;
   }
 
-  if (compare_and_skip_next_symbol('(') == FAILED) {
+  if (opening_parenthesis_read == NO && compare_and_skip_next_symbol('(') == FAILED) {
     print_error(ERROR_DIR, "Opening parenthesis is missing from function \"%s\".\n", name);
     return FAILED;
   }
@@ -8086,6 +8393,11 @@ int directive_function(void) {
       next_line();
     else if (res == FAILED)
       return FAILED;
+
+    if (f->nargument_names >= (int)(sizeof(f->argument_names) / sizeof(f->argument_names[0]))) {
+      print_error(ERROR_DIR, ".FUNCTION \"%s\" has too many arguments, maximum is %d.\n", name, (int)(sizeof(f->argument_names) / sizeof(f->argument_names[0])));
+      return FAILED;
+    }
 
     f->argument_names[f->nargument_names] = calloc((int)strlen(g_label) + 1, 1);
     if (f->argument_names[f->nargument_names] == NULL) {
@@ -8139,6 +8451,15 @@ int directive_function(void) {
 }
 
 
+static int _directive_function(void) {
+
+  if (get_next_plain_string() == FAILED)
+    return FAILED;
+
+  return _directive_function_with_name(g_label, NO);
+}
+
+
 int directive_define_def_equ(void) {
   
   char k[256], label[MAX_NAME_LENGTH+1];
@@ -8154,6 +8475,9 @@ int directive_define_def_equ(void) {
     g_force_add_namespace = NO;
   
   strcpy(label, g_label);
+
+  if (strcaselesscmp(g_current_directive, "DEFINE") == 0 && g_buffer[g_source_index] == '(' && compare_and_skip_next_symbol('(') == SUCCEEDED)
+    return _directive_function_with_name(label, YES);
   
   /* check the user doesn't try to define reserved labels */
   if (is_reserved_definition(label) == YES) {
@@ -8207,7 +8531,7 @@ int directive_define_def_equ(void) {
 }
 
 
-int directive_undef_undefine(void) {
+static int _directive_undef_undefine(void) {
 
   char bak[256];
   int q;
@@ -8245,7 +8569,154 @@ int directive_undef_undefine(void) {
 }
 
 
-int directive_export(void) {
+static void _free_macro_static(struct macro_static *macro) {
+
+  int i;
+
+  if (macro->nargument_names > 0) {
+    for (i = 0; i < macro->nargument_names; i++)
+      free(macro->argument_names[i]);
+    free(macro->argument_names);
+  }
+
+  free(macro);
+}
+
+
+static int _macro_static_is_active(struct macro_static *macro) {
+
+  int i;
+
+  for (i = 0; i < g_macro_active; i++) {
+    if (g_macro_stack[i].macro == macro)
+      return YES;
+  }
+
+  return NO;
+}
+
+
+static int _directive_delmacro(void) {
+
+  struct macro_static *macro, *previous;
+  char name[MAX_NAME_LENGTH + 1], resolved_name[MAX_NAME_LENGTH + 1];
+
+  g_force_ignore_namespace = YES;
+  if (get_next_plain_string() == FAILED) {
+    g_force_ignore_namespace = NO;
+    return FAILED;
+  }
+  g_force_ignore_namespace = NO;
+
+  strcpy(name, g_label);
+
+  if (macro_get(name, YES, &macro) == FAILED)
+    return FAILED;
+
+  if (macro == NULL && strchr(name, '.') != NULL) {
+    if (macro_get(name, NO, &macro) == FAILED)
+      return FAILED;
+  }
+
+  if (macro == NULL) {
+    print_error(ERROR_WRN, "Could not .DELMACRO \"%s\".\n", name);
+    return SUCCEEDED;
+  }
+
+  strcpy(resolved_name, macro->name);
+
+  if (_macro_static_is_active(macro) == YES) {
+    print_error(ERROR_DIR, "Cannot .DELMACRO currently active macro \"%s\".\n", resolved_name);
+    return FAILED;
+  }
+
+  previous = NULL;
+  macro = g_macros_first;
+  while (macro != NULL) {
+    if (strcmp(macro->name, resolved_name) == 0)
+      break;
+    previous = macro;
+    macro = macro->next;
+  }
+
+  if (macro == NULL)
+    return SUCCEEDED;
+
+  if (previous == NULL)
+    g_macros_first = macro->next;
+  else
+    previous->next = macro->next;
+
+  if (g_macros_last == macro)
+    g_macros_last = previous;
+
+  _free_macro_static(macro);
+
+  return SUCCEEDED;
+}
+
+
+static void _free_function(struct function *function) {
+
+  int i;
+
+  for (i = 0; i < function->nargument_names; i++)
+    free(function->argument_names[i]);
+
+  if (function->stack != NULL) {
+    delete_stack_calculation_struct(function->stack);
+    function->stack = NULL;
+  }
+  
+  free(function);
+}
+
+
+static int _directive_delfunction(void) {
+
+  struct function *function, *previous;
+  char name[MAX_NAME_LENGTH + 1];
+
+  if (get_next_plain_string() == FAILED)
+    return FAILED;
+
+  strcpy(name, g_label);
+
+  if (function_get(name, &function) == FAILED)
+    return FAILED;
+
+  if (function == NULL) {
+    print_error(ERROR_WRN, "Could not .DELFUNCTION \"%s\".\n", name);
+    return SUCCEEDED;
+  }
+
+  previous = NULL;
+  function = g_functions_first;
+  while (function != NULL) {
+    if (strcmp(function->name, name) == 0)
+      break;
+    previous = function;
+    function = function->next;
+  }
+
+  if (function == NULL)
+    return SUCCEEDED;
+
+  if (previous == NULL)
+    g_functions_first = function->next;
+  else
+    previous->next = function->next;
+
+  if (g_functions_last == function)
+    g_functions_last = previous;
+
+  _free_function(function);
+
+  return SUCCEEDED;
+}
+
+
+static int _directive_export(void) {
 
   int q = 0;
 
@@ -8274,7 +8745,7 @@ int directive_export(void) {
 }
 
 
-int directive_enumid(void) {
+static int _directive_enumid(void) {
   
   int q;
   
@@ -8348,7 +8819,7 @@ int directive_enumid(void) {
 }
 
 
-int directive_input(void) {
+static int _directive_input(void) {
   
   char k[256];
   int j, v;
@@ -8447,7 +8918,7 @@ int directive_input(void) {
 }
 
 
-int directive_redefine_redef(void) {
+static int _directive_redefine_redef(void) {
   
   char k[256], label[MAX_NAME_LENGTH+1];
   int j, export, q, size;
@@ -8505,7 +8976,7 @@ int directive_redefine_redef(void) {
 
 #if defined(Z80)
 
-int directive_smsheader(void) {
+static int _directive_smsheader(void) {
   
   int q, token_result;
     
@@ -8728,7 +9199,7 @@ int directive_smsheader(void) {
 }
 
 
-int directive_sdsctag(void) {
+static int _directive_sdsctag(void) {
   
   int q;
 
@@ -8893,10 +9364,324 @@ static void _copy_and_pad_string(char *output, char *input, int size, char paddi
   }
   while (i < size)
     output[i++] = padding;
+  output[size] = 0;
 }
 
 
-int directive_smdheader(void) {
+static int _ngheader_validate_bcd_word(int value) {
+
+  int shift;
+
+  for (shift = 0; shift < 16; shift += 4) {
+    if (((value >> shift) & 0xF) > 9)
+      return FAILED;
+  }
+
+  return SUCCEEDED;
+}
+
+
+static void _ngheader_free_string(char **string_value) {
+
+  if (*string_value != NULL) {
+    free(*string_value);
+    *string_value = NULL;
+  }
+}
+
+
+static int _ngheader_parse_pointer(const char *field_name, int *type, int *value, char **string_value) {
+
+  int q;
+
+  q = input_number();
+  if (q == FAILED)
+    return FAILED;
+
+  if (q == SUCCEEDED) {
+    _ngheader_free_string(string_value);
+    *type = TYPE_VALUE;
+    *value = g_parsed_int;
+    return SUCCEEDED;
+  }
+
+  if (q == INPUT_NUMBER_ADDRESS_LABEL) {
+    _ngheader_free_string(string_value);
+    *type = TYPE_LABEL;
+    *string_value = _string_duplicate(g_label);
+    if (*string_value == NULL)
+      return FAILED;
+    return SUCCEEDED;
+  }
+
+  if (q == INPUT_NUMBER_STACK) {
+    _ngheader_free_string(string_value);
+    *type = TYPE_STACK_CALCULATION;
+    *value = g_latest_stack;
+    return SUCCEEDED;
+  }
+
+  print_error(ERROR_DIR, "%s expects an address, label or calculation.\n", field_name);
+  return FAILED;
+}
+
+
+void ngheader_free_allocations(void) {
+
+  char *strings[8], *owned[8];
+  int count = 0, owned_count = 0, i, j, found;
+
+  strings[count++] = g_ngheader_jpconfig_str;
+  strings[count++] = g_ngheader_usconfig_str;
+  strings[count++] = g_ngheader_euconfig_str;
+  strings[count++] = g_ngheader_userentry_str;
+  strings[count++] = g_ngheader_playerstart_str;
+  strings[count++] = g_ngheader_demoend_str;
+  strings[count++] = g_ngheader_coinsound_str;
+  if (g_ngheader_emit_default_securitycode == NO)
+    strings[count++] = g_ngheader_securitycodeptr_str;
+
+  for (i = 0; i < count; i++) {
+    if (strings[i] == NULL)
+      continue;
+
+    found = NO;
+    for (j = 0; j < owned_count; j++) {
+      if (owned[j] == strings[i]) {
+        found = YES;
+        break;
+      }
+    }
+
+    if (found == NO)
+      owned[owned_count++] = strings[i];
+  }
+
+  for (i = 0; i < owned_count; i++)
+    free(owned[i]);
+
+  g_ngheader_jpconfig_str = NULL;
+  g_ngheader_usconfig_str = NULL;
+  g_ngheader_euconfig_str = NULL;
+  g_ngheader_userentry_str = NULL;
+  g_ngheader_playerstart_str = NULL;
+  g_ngheader_demoend_str = NULL;
+  g_ngheader_coinsound_str = NULL;
+  g_ngheader_securitycodeptr_str = NULL;
+}
+
+
+static void _md_free_unique_strings(char **strings, int count) {
+
+  char **owned;
+  int count_owned = 0, i, j, found;
+
+  if (count <= 0)
+    return;
+
+  owned = calloc(count, sizeof(char *));
+  if (owned == NULL)
+    return;
+
+  for (i = 0; i < count; i++) {
+    if (strings[i] == NULL)
+      continue;
+
+    found = NO;
+    for (j = 0; j < count_owned; j++) {
+      if (owned[j] == strings[i]) {
+        found = YES;
+        break;
+      }
+    }
+
+    if (found == NO)
+      owned[count_owned++] = strings[i];
+  }
+
+  for (i = 0; i < count_owned; i++)
+    free(owned[i]);
+  free(owned);
+}
+
+
+void mdvectors_free_allocations(void) {
+
+  char *strings[MD_VECTOR_COUNT + 1];
+  int i;
+
+  for (i = 0; i < MD_VECTOR_COUNT; i++)
+    strings[i] = g_mdvectors_str[i];
+  strings[MD_VECTOR_COUNT] = g_mdvectors_default_str;
+
+  _md_free_unique_strings(strings, MD_VECTOR_COUNT + 1);
+
+  for (i = 0; i < MD_VECTOR_COUNT; i++)
+    g_mdvectors_str[i] = NULL;
+  g_mdvectors_default_str = NULL;
+}
+
+
+void mcdheader_free_allocations(void) {
+
+  char *strings[5];
+
+  strings[0] = g_mcdheader_ipstart_str;
+  strings[1] = g_mcdheader_spstart_str;
+  strings[2] = g_mcdheader_vblank_str;
+  strings[3] = g_mcdheader_hblank_str;
+  strings[4] = g_mcdheader_userprocess_str;
+
+  _md_free_unique_strings(strings, 5);
+
+  g_mcdheader_ipstart_str = NULL;
+  g_mcdheader_spstart_str = NULL;
+  g_mcdheader_vblank_str = NULL;
+  g_mcdheader_hblank_str = NULL;
+  g_mcdheader_userprocess_str = NULL;
+}
+
+
+void mcdspheader_free_allocations(void) {
+
+  char *strings[5];
+
+  strings[0] = g_mcdspheader_spentry_str;
+  strings[1] = g_mcdspheader_spinit_str;
+  strings[2] = g_mcdspheader_spmain_str;
+  strings[3] = g_mcdspheader_spint2_str;
+  strings[4] = g_mcdspheader_spuser_str;
+
+  _md_free_unique_strings(strings, 5);
+
+  g_mcdspheader_spentry_str = NULL;
+  g_mcdspheader_spinit_str = NULL;
+  g_mcdspheader_spmain_str = NULL;
+  g_mcdspheader_spint2_str = NULL;
+  g_mcdspheader_spuser_str = NULL;
+}
+
+
+static void _ngheader_copy_pointer(int source_type, int source_value, char *source_str,
+                                   int *target_type, int *target_value, char **target_str) {
+
+  *target_type = source_type;
+  *target_value = source_value;
+  *target_str = source_str;
+}
+
+
+static void _ng_emit_jump(int type, int value, char *string_value) {
+
+  fprintf(g_file_out_ptr, "d78 d249 ");
+  if (type == TYPE_VALUE)
+    fprintf(g_file_out_ptr, "u%d ", value);
+  else if (type == TYPE_STACK_CALCULATION)
+    fprintf(g_file_out_ptr, "U%d ", value);
+  else
+    fprintf(g_file_out_ptr, "V%s ", string_value);
+}
+
+
+static int _mdvectors_field_to_index(char *field) {
+
+  if (strcaselesscmp(field, "INITIALSP") == 0 || strcaselesscmp(field, "SSP") == 0)
+    return 0;
+  if (strcaselesscmp(field, "RESET") == 0)
+    return 1;
+  if (strcaselesscmp(field, "BUSERROR") == 0)
+    return 2;
+  if (strcaselesscmp(field, "ADDRESSERROR") == 0 || strcaselesscmp(field, "ADDRERROR") == 0)
+    return 3;
+  if (strcaselesscmp(field, "ILLEGALINSTR") == 0 || strcaselesscmp(field, "ILLEGAL") == 0)
+    return 4;
+  if (strcaselesscmp(field, "ZERODIVIDE") == 0 || strcaselesscmp(field, "DIVZERO") == 0)
+    return 5;
+  if (strcaselesscmp(field, "CHKINSTR") == 0 || strcaselesscmp(field, "CHK") == 0)
+    return 6;
+  if (strcaselesscmp(field, "TRAPV") == 0)
+    return 7;
+  if (strcaselesscmp(field, "PRIVVIOLATION") == 0 || strcaselesscmp(field, "PRIVILEGE") == 0)
+    return 8;
+  if (strcaselesscmp(field, "TRACE") == 0)
+    return 9;
+  if (strcaselesscmp(field, "LINEA") == 0 || strcaselesscmp(field, "LINE1010") == 0)
+    return 10;
+  if (strcaselesscmp(field, "LINEF") == 0 || strcaselesscmp(field, "LINE1111") == 0)
+    return 11;
+  if (strcaselesscmp(field, "SPURIOUS") == 0)
+    return 24;
+  if (strcaselesscmp(field, "LEVEL1") == 0)
+    return 25;
+  if (strcaselesscmp(field, "EXTERNAL") == 0 || strcaselesscmp(field, "LEVEL2") == 0)
+    return 26;
+  if (strcaselesscmp(field, "LEVEL3") == 0)
+    return 27;
+  if (strcaselesscmp(field, "HBLANK") == 0 || strcaselesscmp(field, "LEVEL4") == 0)
+    return 28;
+  if (strcaselesscmp(field, "LEVEL5") == 0)
+    return 29;
+  if (strcaselesscmp(field, "VBLANK") == 0 || strcaselesscmp(field, "LEVEL6") == 0)
+    return 30;
+  if (strcaselesscmp(field, "LEVEL7") == 0)
+    return 31;
+  if (strcaselesscmp(field, "TRAP0") == 0)
+    return 32;
+  if (strcaselesscmp(field, "TRAP1") == 0)
+    return 33;
+  if (strcaselesscmp(field, "TRAP2") == 0)
+    return 34;
+  if (strcaselesscmp(field, "TRAP3") == 0)
+    return 35;
+  if (strcaselesscmp(field, "TRAP4") == 0)
+    return 36;
+  if (strcaselesscmp(field, "TRAP5") == 0)
+    return 37;
+  if (strcaselesscmp(field, "TRAP6") == 0)
+    return 38;
+  if (strcaselesscmp(field, "TRAP7") == 0)
+    return 39;
+  if (strcaselesscmp(field, "TRAP8") == 0)
+    return 40;
+  if (strcaselesscmp(field, "TRAP9") == 0)
+    return 41;
+  if (strcaselesscmp(field, "TRAP10") == 0)
+    return 42;
+  if (strcaselesscmp(field, "TRAP11") == 0)
+    return 43;
+  if (strcaselesscmp(field, "TRAP12") == 0)
+    return 44;
+  if (strcaselesscmp(field, "TRAP13") == 0)
+    return 45;
+  if (strcaselesscmp(field, "TRAP14") == 0)
+    return 46;
+  if (strcaselesscmp(field, "TRAP15") == 0)
+    return 47;
+
+  return -1;
+}
+
+
+/* Emit a fixed-length ASCII field into the current section, padded (with
+   0x20) or truncated to match the target width. If 'remap_ascii' is YES,
+   apply the active .ASCIITABLE mapping. */
+static void _ngsoftdip_emit_fixed_string(const char *s, int length, int remap_ascii) {
+
+  int i, ch;
+
+  for (i = 0; i < length; i++) {
+    if (s != NULL && i < (int)strlen(s))
+      ch = (unsigned char)s[i];
+    else
+      ch = 0x20;
+    if (remap_ascii == YES)
+      ch = (int)g_asciitable[ch & 0xFF];
+    fprintf(g_file_out_ptr, "d%d ", ch);
+  }
+}
+
+
+static int _directive_smdheader(void) {
   
   int q, token_result;
     
@@ -9141,13 +9926,752 @@ int directive_smdheader(void) {
   return SUCCEEDED;
 }
 
-#endif
 
+int directive_mdvectors(void) {
+
+  int q, token_result, index;
+
+  if (g_mdvectors_defined == YES) {
+    print_error(ERROR_DIR, ".MDVECTORS can be defined only once.\n");
+    return FAILED;
+  }
+
+  if (g_output_format == OUTPUT_LIBRARY) {
+    print_error(ERROR_DIR, "Libraries don't take .MDVECTORS.\n");
+    return FAILED;
+  }
+  if (g_md_org0_defined == YES) {
+    print_error(ERROR_DIR, ".MDVECTORS emits the vector table at $000000; don't also place code or data with .ORG/.ORGA 0.\n");
+    return FAILED;
+  }
+
+  g_mdvectors_type[0] = TYPE_VALUE;
+  g_mdvectors_value[0] = 0x00FFFE00;
+  g_mdvectors_defined_slots[0] = YES;
+
+  while ((token_result = get_next_token()) == SUCCEEDED) {
+    if (g_tmp[0] == '.') {
+      q = parse_if_directive();
+      if (q == FAILED)
+        return FAILED;
+      else if (q == SUCCEEDED)
+        continue;
+    }
+
+    if (strcaselesscmp(g_tmp, ".ENDMDVECTORS") == 0)
+      break;
+    else if (strcaselesscmp(g_tmp, "DEFAULT") == 0) {
+      if (_ngheader_parse_pointer("DEFAULT", &g_mdvectors_default_type, &g_mdvectors_default_value, &g_mdvectors_default_str) == FAILED)
+        return FAILED;
+      g_mdvectors_default_defined = YES;
+    }
+    else {
+      index = _mdvectors_field_to_index(g_tmp);
+      if (index < 0) {
+        token_result = FAILED;
+        break;
+      }
+      if (_ngheader_parse_pointer(g_tmp, &g_mdvectors_type[index], &g_mdvectors_value[index], &g_mdvectors_str[index]) == FAILED)
+        return FAILED;
+      g_mdvectors_defined_slots[index] = YES;
+    }
+  }
+
+  if (token_result != SUCCEEDED) {
+    print_error(ERROR_DIR, "Error in .MDVECTORS data structure.\n");
+    return FAILED;
+  }
+
+  if (g_mdvectors_defined_slots[1] == NO) {
+    print_error(ERROR_DIR, ".MDVECTORS requires RESET to be defined.\n");
+    return FAILED;
+  }
+
+  if (g_mdvectors_default_defined == NO)
+    print_error(ERROR_WRN, ".MDVECTORS has no DEFAULT handler; unspecified vectors will point to $00000000.\n");
+
+  g_mdvectors_defined = YES;
+
+  return SUCCEEDED;
+}
+
+
+int directive_mcdheader(void) {
+
+  int q, token_result, ipstart_defined = NO, devicesupport_defined = NO;
+
+  if (g_mcdheader_defined == YES) {
+    print_error(ERROR_DIR, ".MCDHEADER can be defined only once.\n");
+    return FAILED;
+  }
+  if (g_mcdspheader_defined == YES) {
+    print_error(ERROR_DIR, ".MCDHEADER and .MCDSPHEADER cannot be used in the same source file.\n");
+    return FAILED;
+  }
+  if (g_output_format == OUTPUT_LIBRARY) {
+    print_error(ERROR_DIR, "Libraries don't take .MCDHEADER.\n");
+    return FAILED;
+  }
+
+  while ((token_result = get_next_token()) == SUCCEEDED) {
+    if (g_tmp[0] == '.') {
+      q = parse_if_directive();
+      if (q == FAILED)
+        return FAILED;
+      else if (q == SUCCEEDED)
+        continue;
+    }
+
+    if (strcaselesscmp(g_tmp, ".ENDMCDHEADER") == 0)
+      break;
+    else if (strcaselesscmp(g_tmp, "SYSTEMTYPE") == 0) {
+      q = input_number();
+      if (q != INPUT_NUMBER_STRING || strlen(g_label) > 16) {
+        print_error(ERROR_DIR, "SYSTEMTYPE expects a string with maximum 16 characters.\n");
+        return FAILED;
+      }
+      _copy_and_pad_string(g_mcdheader_systemtype, g_label, 16, ' ');
+    }
+    else if (strcaselesscmp(g_tmp, "COPYRIGHT") == 0) {
+      q = input_number();
+      if (q != INPUT_NUMBER_STRING || strlen(g_label) > 16) {
+        print_error(ERROR_DIR, "COPYRIGHT expects a string with maximum 16 characters.\n");
+        return FAILED;
+      }
+      _copy_and_pad_string(g_mcdheader_copyright, g_label, 16, ' ');
+    }
+    else if (strcaselesscmp(g_tmp, "TITLEDOMESTIC") == 0) {
+      q = input_number();
+      if (q != INPUT_NUMBER_STRING || strlen(g_label) > 48) {
+        print_error(ERROR_DIR, "TITLEDOMESTIC expects a string with maximum 48 characters.\n");
+        return FAILED;
+      }
+      _copy_and_pad_string(g_mcdheader_titledomestic, g_label, 48, ' ');
+    }
+    else if (strcaselesscmp(g_tmp, "TITLEOVERSEAS") == 0) {
+      q = input_number();
+      if (q != INPUT_NUMBER_STRING || strlen(g_label) > 48) {
+        print_error(ERROR_DIR, "TITLEOVERSEAS expects a string with maximum 48 characters.\n");
+        return FAILED;
+      }
+      _copy_and_pad_string(g_mcdheader_titleoverseas, g_label, 48, ' ');
+    }
+    else if (strcaselesscmp(g_tmp, "SERIALNUMBER") == 0) {
+      q = input_number();
+      if (q != INPUT_NUMBER_STRING || strlen(g_label) > 14) {
+        print_error(ERROR_DIR, "SERIALNUMBER expects a string with maximum 14 characters.\n");
+        return FAILED;
+      }
+      _copy_and_pad_string(g_mcdheader_serialnumber, g_label, 14, ' ');
+    }
+    else if (strcaselesscmp(g_tmp, "DEVICESUPPORT") == 0) {
+      q = input_number();
+      if (q != INPUT_NUMBER_STRING || strlen(g_label) > 16) {
+        print_error(ERROR_DIR, "DEVICESUPPORT expects a string with maximum 16 characters.\n");
+        return FAILED;
+      }
+      _copy_and_pad_string(g_mcdheader_devicesupport, g_label, 16, ' ');
+      devicesupport_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "REGIONSUPPORT") == 0) {
+      q = input_number();
+      if (q != INPUT_NUMBER_STRING || strlen(g_label) > 3) {
+        print_error(ERROR_DIR, "REGIONSUPPORT expects a string with maximum 3 characters.\n");
+        return FAILED;
+      }
+      _copy_and_pad_string(g_mcdheader_regionsupport, g_label, 3, ' ');
+    }
+    else if (strcaselesscmp(g_tmp, "IPSTART") == 0) {
+      if (_ngheader_parse_pointer("IPSTART", &g_mcdheader_ipstart_type, &g_mcdheader_ipstart_value, &g_mcdheader_ipstart_str) == FAILED)
+        return FAILED;
+      ipstart_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "SPSTART") == 0) {
+      if (_ngheader_parse_pointer("SPSTART", &g_mcdheader_spstart_type, &g_mcdheader_spstart_value, &g_mcdheader_spstart_str) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "VBLANKINT") == 0) {
+      if (_ngheader_parse_pointer("VBLANKINT", &g_mcdheader_vblank_type, &g_mcdheader_vblank_value, &g_mcdheader_vblank_str) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "HBLANKINT") == 0) {
+      if (_ngheader_parse_pointer("HBLANKINT", &g_mcdheader_hblank_type, &g_mcdheader_hblank_value, &g_mcdheader_hblank_str) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "USERPROCESS") == 0) {
+      if (_ngheader_parse_pointer("USERPROCESS", &g_mcdheader_userprocess_type, &g_mcdheader_userprocess_value, &g_mcdheader_userprocess_str) == FAILED)
+        return FAILED;
+    }
+    else {
+      token_result = FAILED;
+      break;
+    }
+  }
+
+  if (token_result != SUCCEEDED) {
+    print_error(ERROR_DIR, "Error in .MCDHEADER data structure.\n");
+    return FAILED;
+  }
+  if (ipstart_defined == NO) {
+    print_error(ERROR_DIR, ".MCDHEADER requires IPSTART to be defined.\n");
+    return FAILED;
+  }
+  if (devicesupport_defined == NO)
+    print_error(ERROR_WRN, ".MCDHEADER has no DEVICESUPPORT field; defaulting to \"J\".\n");
+
+  g_mcdheader_defined = YES;
+
+  return SUCCEEDED;
+}
+
+
+int directive_mcdspheader(void) {
+
+  int q, token_result, spentry_defined = NO;
+
+  if (g_mcdspheader_defined == YES) {
+    print_error(ERROR_DIR, ".MCDSPHEADER can be defined only once.\n");
+    return FAILED;
+  }
+  if (g_mcdheader_defined == YES) {
+    print_error(ERROR_DIR, ".MCDHEADER and .MCDSPHEADER cannot be used in the same source file.\n");
+    return FAILED;
+  }
+  if (g_output_format == OUTPUT_LIBRARY) {
+    print_error(ERROR_DIR, "Libraries don't take .MCDSPHEADER.\n");
+    return FAILED;
+  }
+
+  while ((token_result = get_next_token()) == SUCCEEDED) {
+    if (g_tmp[0] == '.') {
+      q = parse_if_directive();
+      if (q == FAILED)
+        return FAILED;
+      else if (q == SUCCEEDED)
+        continue;
+    }
+
+    if (strcaselesscmp(g_tmp, ".ENDMCDSPHEADER") == 0)
+      break;
+    else if (strcaselesscmp(g_tmp, "SPENTRY") == 0) {
+      if (_ngheader_parse_pointer("SPENTRY", &g_mcdspheader_spentry_type, &g_mcdspheader_spentry_value, &g_mcdspheader_spentry_str) == FAILED)
+        return FAILED;
+      spentry_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "SPINIT") == 0) {
+      if (_ngheader_parse_pointer("SPINIT", &g_mcdspheader_spinit_type, &g_mcdspheader_spinit_value, &g_mcdspheader_spinit_str) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "SPMAIN") == 0) {
+      if (_ngheader_parse_pointer("SPMAIN", &g_mcdspheader_spmain_type, &g_mcdspheader_spmain_value, &g_mcdspheader_spmain_str) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "SPINT2") == 0) {
+      if (_ngheader_parse_pointer("SPINT2", &g_mcdspheader_spint2_type, &g_mcdspheader_spint2_value, &g_mcdspheader_spint2_str) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "SPUSER") == 0) {
+      if (_ngheader_parse_pointer("SPUSER", &g_mcdspheader_spuser_type, &g_mcdspheader_spuser_value, &g_mcdspheader_spuser_str) == FAILED)
+        return FAILED;
+    }
+    else {
+      token_result = FAILED;
+      break;
+    }
+  }
+
+  if (token_result != SUCCEEDED) {
+    print_error(ERROR_DIR, "Error in .MCDSPHEADER data structure.\n");
+    return FAILED;
+  }
+  if (spentry_defined == NO) {
+    print_error(ERROR_DIR, ".MCDSPHEADER requires SPENTRY to be defined.\n");
+    return FAILED;
+  }
+
+  g_mcdspheader_defined = YES;
+
+  return SUCCEEDED;
+}
+
+
+int directive_ngheader(void) {
+
+  static char s_ngheader_generated_securitycode_label[] = "*WLA_NG_SECURITY_CODE";
+  int q, token_result;
+  int playerstart_defined = NO, demoend_defined = NO, coinsound_defined = NO;
+  int jpconfig_defined = NO, usconfig_defined = NO, euconfig_defined = NO;
+  int securitycodeptr_defined = NO;
+
+  if (g_ngheader_defined == YES) {
+    print_error(ERROR_DIR, ".NGHEADER can be defined only once.\n");
+    return FAILED;
+  }
+
+  if (g_output_format == OUTPUT_LIBRARY) {
+    print_error(ERROR_DIR, "Libraries don't take .NGHEADER.\n");
+    return FAILED;
+  }
+
+  while ((token_result = get_next_token()) == SUCCEEDED) {
+    if (g_tmp[0] == '.') {
+      q = parse_if_directive();
+      if (q == FAILED)
+        return FAILED;
+      else if (q == SUCCEEDED)
+        continue;
+    }
+
+    if (strcaselesscmp(g_tmp, ".ENDNG") == 0)
+      break;
+    else if (strcaselesscmp(g_tmp, "NGH") == 0) {
+      q = input_number();
+      if (q == FAILED)
+        return FAILED;
+      if (q != SUCCEEDED || g_parsed_int <= 0 || g_parsed_int > 0x9999 || _ngheader_validate_bcd_word(g_parsed_int) == FAILED) {
+        print_error(ERROR_DIR, "NGH expects a non-zero BCD value in the range $0001-$9999.\n");
+        return FAILED;
+      }
+
+      g_ngheader_ngh = g_parsed_int;
+      g_ngheader_ngh_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "SYSTEMVERSION") == 0) {
+      q = input_number();
+      if (q == FAILED)
+        return FAILED;
+      if (q != SUCCEEDED || g_parsed_int < -128 || g_parsed_int > 255) {
+        print_error(ERROR_DIR, "SYSTEMVERSION expects a byte value.\n");
+        return FAILED;
+      }
+
+      g_ngheader_systemversion = g_parsed_int;
+    }
+    else if (strcaselesscmp(g_tmp, "PROMSIZE") == 0) {
+      q = input_number();
+      if (q == FAILED)
+        return FAILED;
+      if (q == INPUT_NUMBER_ADDRESS_LABEL) {
+        if (strcaselesscmp(g_label, "AUTO") == 0) {
+          g_ngheader_promsize_defined = NO;
+          g_ngheader_promsize_autopow2 = NO;
+        }
+        else if (strcaselesscmp(g_label, "AUTOPOW2") == 0) {
+          g_ngheader_promsize_defined = NO;
+          g_ngheader_promsize_autopow2 = YES;
+        }
+        else {
+          print_error(ERROR_DIR, "PROMSIZE expects AUTO, AUTOPOW2 or an integer value.\n");
+          return FAILED;
+        }
+      }
+      else if (q == SUCCEEDED && g_parsed_int >= 0) {
+        g_ngheader_promsize = g_parsed_int;
+        g_ngheader_promsize_defined = YES;
+        g_ngheader_promsize_autopow2 = NO;
+      }
+      else {
+        print_error(ERROR_DIR, "PROMSIZE expects AUTO, AUTOPOW2 or an integer value.\n");
+        return FAILED;
+      }
+    }
+    else if (strcaselesscmp(g_tmp, "BACKUPRAMPTR") == 0) {
+      q = input_number();
+      if (q == FAILED)
+        return FAILED;
+      if (q != SUCCEEDED) {
+        print_error(ERROR_DIR, "BACKUPRAMPTR expects an integer value.\n");
+        return FAILED;
+      }
+
+      g_ngheader_backupramptr = g_parsed_int;
+    }
+    else if (strcaselesscmp(g_tmp, "BACKUPRAMSIZE") == 0) {
+      q = input_number();
+      if (q == FAILED)
+        return FAILED;
+      if (q != SUCCEEDED || g_parsed_int < 0 || g_parsed_int > 4096) {
+        print_error(ERROR_DIR, "BACKUPRAMSIZE expects an integer value in the range [0,4096].\n");
+        return FAILED;
+      }
+
+      g_ngheader_backupramsize = g_parsed_int;
+    }
+    else if (strcaselesscmp(g_tmp, "EYECATCHER") == 0) {
+      q = input_number();
+      if (q == FAILED)
+        return FAILED;
+
+      if (q == SUCCEEDED) {
+        if (g_parsed_int < 0 || g_parsed_int > 2) {
+          print_error(ERROR_DIR, "EYECATCHER expects SYSTEM, GAME, NONE or an integer in the range [0,2].\n");
+          return FAILED;
+        }
+        g_ngheader_eyecatcher = g_parsed_int;
+      }
+      else if (q == INPUT_NUMBER_ADDRESS_LABEL) {
+        if (strcaselesscmp(g_label, "SYSTEM") == 0)
+          g_ngheader_eyecatcher = 0;
+        else if (strcaselesscmp(g_label, "GAME") == 0)
+          g_ngheader_eyecatcher = 1;
+        else if (strcaselesscmp(g_label, "NONE") == 0 || strcaselesscmp(g_label, "NOTHING") == 0)
+          g_ngheader_eyecatcher = 2;
+        else {
+          print_error(ERROR_DIR, "EYECATCHER expects SYSTEM, GAME, NONE or an integer in the range [0,2].\n");
+          return FAILED;
+        }
+      }
+      else {
+        print_error(ERROR_DIR, "EYECATCHER expects SYSTEM, GAME, NONE or an integer in the range [0,2].\n");
+        return FAILED;
+      }
+    }
+    else if (strcaselesscmp(g_tmp, "LOGOBANK") == 0) {
+      q = input_number();
+      if (q == FAILED)
+        return FAILED;
+      if (q != SUCCEEDED || g_parsed_int < -128 || g_parsed_int > 255) {
+        print_error(ERROR_DIR, "LOGOBANK expects a byte value.\n");
+        return FAILED;
+      }
+
+      g_ngheader_logobank = g_parsed_int;
+    }
+    else if (strcaselesscmp(g_tmp, "JPCONFIG") == 0) {
+      if (_ngheader_parse_pointer("JPCONFIG", &g_ngheader_jpconfig_type, &g_ngheader_jpconfig_value, &g_ngheader_jpconfig_str) == FAILED)
+        return FAILED;
+      jpconfig_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "USCONFIG") == 0) {
+      if (_ngheader_parse_pointer("USCONFIG", &g_ngheader_usconfig_type, &g_ngheader_usconfig_value, &g_ngheader_usconfig_str) == FAILED)
+        return FAILED;
+      usconfig_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "EUCONFIG") == 0) {
+      if (_ngheader_parse_pointer("EUCONFIG", &g_ngheader_euconfig_type, &g_ngheader_euconfig_value, &g_ngheader_euconfig_str) == FAILED)
+        return FAILED;
+      euconfig_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "USERENTRY") == 0) {
+      if (_ngheader_parse_pointer("USERENTRY", &g_ngheader_userentry_type, &g_ngheader_userentry_value, &g_ngheader_userentry_str) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "PLAYERSTART") == 0) {
+      if (_ngheader_parse_pointer("PLAYERSTART", &g_ngheader_playerstart_type, &g_ngheader_playerstart_value, &g_ngheader_playerstart_str) == FAILED)
+        return FAILED;
+      playerstart_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "DEMOEND") == 0) {
+      if (_ngheader_parse_pointer("DEMOEND", &g_ngheader_demoend_type, &g_ngheader_demoend_value, &g_ngheader_demoend_str) == FAILED)
+        return FAILED;
+      demoend_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "COINSOUND") == 0) {
+      if (_ngheader_parse_pointer("COINSOUND", &g_ngheader_coinsound_type, &g_ngheader_coinsound_value, &g_ngheader_coinsound_str) == FAILED)
+        return FAILED;
+      coinsound_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "SECURITYCODEPTR") == 0) {
+      if (_ngheader_parse_pointer("SECURITYCODEPTR", &g_ngheader_securitycodeptr_type, &g_ngheader_securitycodeptr_value, &g_ngheader_securitycodeptr_str) == FAILED)
+        return FAILED;
+      securitycodeptr_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "SYSTEM") == 0) {
+      q = input_number();
+      if (q == FAILED)
+        return FAILED;
+      if (q == INPUT_NUMBER_ADDRESS_LABEL) {
+        if (strcaselesscmp(g_label, "CART") == 0 || strcaselesscmp(g_label, "MVS") == 0 || strcaselesscmp(g_label, "AES") == 0)
+          g_ngheader_systemversion = 0;
+        else if (strcaselesscmp(g_label, "CD") == 0 || strcaselesscmp(g_label, "CDDA") == 0)
+          g_ngheader_systemversion = 2;
+        else {
+          print_error(ERROR_DIR, "SYSTEM expects CART, CD or an integer value.\n");
+          return FAILED;
+        }
+      }
+      else if (q == SUCCEEDED) {
+        if (g_parsed_int < -128 || g_parsed_int > 255) {
+          print_error(ERROR_DIR, "SYSTEM expects CART, CD or a byte value.\n");
+          return FAILED;
+        }
+        g_ngheader_systemversion = g_parsed_int;
+      }
+      else {
+        print_error(ERROR_DIR, "SYSTEM expects CART, CD or a byte value.\n");
+        return FAILED;
+      }
+    }
+    else if (strcaselesscmp(g_tmp, "CDDACMDPTR") == 0) {
+      q = input_number();
+      if (q == FAILED)
+        return FAILED;
+      if (q != SUCCEEDED || g_parsed_int < 0 || g_parsed_int > 0xFFFF) {
+        print_error(ERROR_DIR, "CDDACMDPTR expects a Z80 RAM address (word value in the range [0,$FFFF]).\n");
+        return FAILED;
+      }
+
+      g_ngheader_cddacmdptr_value = g_parsed_int;
+      g_ngheader_cddacmdptr_defined = YES;
+    }
+    else {
+      token_result = FAILED;
+      break;
+    }
+  }
+
+  if (token_result != SUCCEEDED) {
+    print_error(ERROR_DIR, "Error in .NGHEADER data structure.\n");
+    return FAILED;
+  }
+
+  if (g_ngheader_ngh_defined == NO) {
+    print_error(ERROR_DIR, ".NGHEADER requires NGH to be defined.\n");
+    return FAILED;
+  }
+
+  if (g_ngheader_userentry_str == NULL && g_ngheader_userentry_type == TYPE_VALUE && g_ngheader_userentry_value == 0) {
+    print_error(ERROR_DIR, ".NGHEADER requires USERENTRY to be defined.\n");
+    return FAILED;
+  }
+
+  if (playerstart_defined == NO)
+    _ngheader_copy_pointer(g_ngheader_userentry_type, g_ngheader_userentry_value, g_ngheader_userentry_str,
+                           &g_ngheader_playerstart_type, &g_ngheader_playerstart_value, &g_ngheader_playerstart_str);
+  if (demoend_defined == NO)
+    _ngheader_copy_pointer(g_ngheader_userentry_type, g_ngheader_userentry_value, g_ngheader_userentry_str,
+                           &g_ngheader_demoend_type, &g_ngheader_demoend_value, &g_ngheader_demoend_str);
+  if (coinsound_defined == NO)
+    _ngheader_copy_pointer(g_ngheader_userentry_type, g_ngheader_userentry_value, g_ngheader_userentry_str,
+                           &g_ngheader_coinsound_type, &g_ngheader_coinsound_value, &g_ngheader_coinsound_str);
+
+  if (jpconfig_defined == NO) {
+    g_ngheader_jpconfig_type = TYPE_VALUE;
+    g_ngheader_jpconfig_value = 0;
+    g_ngheader_jpconfig_str = NULL;
+  }
+  if (usconfig_defined == NO) {
+    g_ngheader_usconfig_type = TYPE_VALUE;
+    g_ngheader_usconfig_value = 0;
+    g_ngheader_usconfig_str = NULL;
+  }
+  if (euconfig_defined == NO) {
+    g_ngheader_euconfig_type = TYPE_VALUE;
+    g_ngheader_euconfig_value = 0;
+    g_ngheader_euconfig_str = NULL;
+  }
+
+  if (securitycodeptr_defined == NO) {
+    g_ngheader_securitycodeptr_type = TYPE_LABEL;
+    g_ngheader_securitycodeptr_str = s_ngheader_generated_securitycode_label;
+    g_ngheader_emit_default_securitycode = YES;
+  }
+  else {
+    g_ngheader_emit_default_securitycode = NO;
+  }
+
+  if (g_ngheader_securitycodeptr_type == TYPE_VALUE && (g_ngheader_securitycodeptr_value & 1) != 0) {
+    print_error(ERROR_DIR, "SECURITYCODEPTR must be word aligned.\n");
+    return FAILED;
+  }
+
+  g_ngheader_defined = YES;
+
+  return SUCCEEDED;
+}
+
+
+int directive_ngsoftdip(void) {
+
+  /* Soft-DIP / BIOS config menu layout as documented on the NeoGeo Dev
+     Wiki 68k_program_header page:
+       offset  0: 16 bytes - game name (upper ASCII, padded with 0x20)
+       offset 16:  6 bytes - special list (default $FF × 6)
+       offset 22: 10 bytes - option list  (default $00 × 10)
+       offset 32: 96 bytes - 8 menu item labels, 12 bytes each
+     The directive emits 128 bytes into the current section. The caller
+     is expected to place a label immediately before the directive and
+     pass that label to .NGHEADER JPCONFIG/USCONFIG/EUCONFIG. */
+
+  char name_buf[17];
+  unsigned char special_buf[6];
+  unsigned char options_buf[10];
+  char text_buf[8][13];
+  int name_defined = NO;
+  int text_count = 0;
+  int q, i, token_result;
+  const int text_width = 12;
+
+  memset(name_buf, 0x20, 16);
+  name_buf[16] = '\0';
+  for (i = 0; i < 6; i++) special_buf[i] = 0xFF;
+  for (i = 0; i < 10; i++) options_buf[i] = 0x00;
+  for (i = 0; i < 8; i++) {
+    memset(text_buf[i], 0x20, text_width);
+    text_buf[i][text_width] = '\0';
+  }
+
+  while ((token_result = get_next_token()) == SUCCEEDED) {
+    if (g_tmp[0] == '.') {
+      q = parse_if_directive();
+      if (q == FAILED)
+        return FAILED;
+      else if (q == SUCCEEDED)
+        continue;
+    }
+
+    if (strcaselesscmp(g_tmp, ".ENDNGSOFTDIP") == 0)
+      break;
+    else if (strcaselesscmp(g_tmp, "NAME") == 0) {
+      q = input_number();
+      if (q != INPUT_NUMBER_STRING) {
+        print_error(ERROR_DIR, "NAME expects a quoted string.\n");
+        return FAILED;
+      }
+      if (g_string_size > 16) {
+        print_error(ERROR_DIR, "NAME string must be 16 characters or less.\n");
+        return FAILED;
+      }
+      memset(name_buf, 0x20, 16);
+      for (i = 0; i < g_string_size; i++)
+        name_buf[i] = g_label[i];
+      name_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "SPECIAL") == 0) {
+      for (i = 0; i < 6; i++) {
+        q = input_number();
+        if (q != SUCCEEDED || g_parsed_int < -128 || g_parsed_int > 255) {
+          print_error(ERROR_DIR, "SPECIAL expects exactly 6 byte values.\n");
+          return FAILED;
+        }
+        special_buf[i] = (unsigned char)g_parsed_int;
+      }
+    }
+    else if (strcaselesscmp(g_tmp, "OPTIONS") == 0) {
+      for (i = 0; i < 10; i++) {
+        q = input_number();
+        if (q != SUCCEEDED || g_parsed_int < -128 || g_parsed_int > 255) {
+          print_error(ERROR_DIR, "OPTIONS expects exactly 10 byte values.\n");
+          return FAILED;
+        }
+        options_buf[i] = (unsigned char)g_parsed_int;
+      }
+    }
+    else if (strcaselesscmp(g_tmp, "TEXT") == 0) {
+      q = input_number();
+      if (q != INPUT_NUMBER_STRING) {
+        print_error(ERROR_DIR, "TEXT expects a quoted string.\n");
+        return FAILED;
+      }
+      if (text_count >= 8) {
+        print_error(ERROR_DIR, ".NGSOFTDIP takes at most 8 TEXT entries.\n");
+        return FAILED;
+      }
+      if (g_string_size > text_width) {
+        print_error(ERROR_DIR, "TEXT string must be 12 characters or less.\n");
+        return FAILED;
+      }
+      memset(text_buf[text_count], 0x20, text_width);
+      for (i = 0; i < g_string_size; i++)
+        text_buf[text_count][i] = g_label[i];
+      text_count++;
+    }
+    else {
+      token_result = FAILED;
+      break;
+    }
+  }
+
+  if (token_result != SUCCEEDED) {
+    print_error(ERROR_DIR, "Error in .NGSOFTDIP data structure.\n");
+    return FAILED;
+  }
+
+  if (name_defined == NO) {
+    print_error(ERROR_DIR, ".NGSOFTDIP requires NAME to be defined.\n");
+    return FAILED;
+  }
+
+  /* emit: 16 bytes name, 6 bytes special, 10 bytes options, 8*12 bytes text */
+  _ngsoftdip_emit_fixed_string(name_buf, 16, NO);
+  for (i = 0; i < 6; i++)
+    fprintf(g_file_out_ptr, "d%d ", (int)special_buf[i]);
+  for (i = 0; i < 10; i++)
+    fprintf(g_file_out_ptr, "d%d ", (int)options_buf[i]);
+  for (i = 0; i < 8; i++)
+    _ngsoftdip_emit_fixed_string(text_buf[i], text_width, NO);
+
+  return SUCCEEDED;
+}
+
+
+int directive_ngvectors(void) {
+
+  int vblank_type = TYPE_VALUE, timer_type = TYPE_VALUE, external_type = TYPE_VALUE;
+  int vblank_value = 0, timer_value = 0, external_value = 0;
+  char *vblank_str = NULL, *timer_str = NULL, *external_str = NULL;
+  int vblank_defined = NO, timer_defined = NO, external_defined = NO;
+  int q, token_result;
+
+  while ((token_result = get_next_token()) == SUCCEEDED) {
+    if (g_tmp[0] == '.') {
+      q = parse_if_directive();
+      if (q == FAILED)
+        return FAILED;
+      else if (q == SUCCEEDED)
+        continue;
+    }
+
+    if (strcaselesscmp(g_tmp, ".ENDNGVECTORS") == 0)
+      break;
+    else if (strcaselesscmp(g_tmp, "VBLANK") == 0) {
+      if (_ngheader_parse_pointer("VBLANK", &vblank_type, &vblank_value, &vblank_str) == FAILED)
+        return FAILED;
+      vblank_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "TIMER") == 0) {
+      if (_ngheader_parse_pointer("TIMER", &timer_type, &timer_value, &timer_str) == FAILED)
+        return FAILED;
+      timer_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "EXTERNAL") == 0) {
+      if (_ngheader_parse_pointer("EXTERNAL", &external_type, &external_value, &external_str) == FAILED)
+        return FAILED;
+      external_defined = YES;
+    }
+    else {
+      token_result = FAILED;
+      break;
+    }
+  }
+
+  if (token_result != SUCCEEDED) {
+    print_error(ERROR_DIR, "Error in .NGVECTORS data structure.\n");
+    return FAILED;
+  }
+
+  if (vblank_defined == NO || timer_defined == NO || external_defined == NO) {
+    print_error(ERROR_DIR, ".NGVECTORS requires VBLANK, TIMER and EXTERNAL to be defined.\n");
+    return FAILED;
+  }
+
+  _ng_emit_jump(vblank_type, vblank_value, vblank_str);
+  _ng_emit_jump(timer_type, timer_value, timer_str);
+  _ng_emit_jump(external_type, external_value, external_str);
+
+  _ngheader_free_string(&vblank_str);
+  _ngheader_free_string(&timer_str);
+  _ngheader_free_string(&external_str);
+
+  return SUCCEEDED;
+}
+
+#endif
 
 static int _parse_macro_argument_names(struct macro_static *m, int *count, int is_inside_parentheses) {
 
   while (1) {
-    int string_result;
+    int string_result, start;
 
     if (is_inside_parentheses == YES) {
       if (compare_and_skip_next_symbol(')') == SUCCEEDED)
@@ -9156,6 +10680,7 @@ static int _parse_macro_argument_names(struct macro_static *m, int *count, int i
 
     if (g_is_file_isolated_counter > 0)
       g_force_ignore_namespace = YES;
+    start = g_source_index;
     string_result = input_next_string();
     if (g_is_file_isolated_counter > 0)
       g_force_ignore_namespace = NO;
@@ -9164,7 +10689,8 @@ static int _parse_macro_argument_names(struct macro_static *m, int *count, int i
       return FAILED;
     if (string_result == INPUT_NUMBER_EOL) {
       if (*count != 0) {
-        next_line();
+        /* we back off so the parsing will work */
+        g_source_index = start;
         break;
       }
       print_error(ERROR_DIR, "MACRO \"%s\" is missing argument names?\n", m->name);
@@ -9192,7 +10718,7 @@ static int _parse_macro_argument_names(struct macro_static *m, int *count, int i
 }
 
 
-int directive_macro(void) {
+static int _directive_macro(void) {
 
   struct macro_static *m;
   int macro_start_line, q = 0;
@@ -9217,7 +10743,7 @@ int directive_macro(void) {
     return FAILED;
   }
 
-  m = calloc(sizeof(struct macro_static), 1);
+  m = calloc(1, sizeof(struct macro_static));
   if (m == NULL) {
     print_error(ERROR_DIR, "Out of memory while allocating room for a new .MACRO.\n");
     return FAILED;
@@ -9353,10 +10879,10 @@ static int _find_next_endr(void) {
 }
 
 
-int directive_rept_repeat_while(int is_while) {
+static int _directive_rept_repeat_while(int is_while) {
   
   char c[16], index_name[MAX_NAME_LENGTH + 1];
-  int q, start, line, value = 0, counter = 0, step = 1;
+  int q, start, line, value = 0, counter, step = 1;
 
   strcpy(c, g_current_directive);
 
@@ -9422,23 +10948,23 @@ int directive_rept_repeat_while(int is_while) {
         continue;
       }
 
-      /* test for EOL */
-      remember_current_source_file_position();
-
+      /* the only thing that's allowed here is the end of the line */
       q = input_number();
       if (q == INPUT_NUMBER_EOL) {
         g_parsed_int = counter;
         next_line();
         break;
       }
+      else if (q == FAILED)
+        return FAILED;
       else {
-        /* this is not yet the end */
-        roll_back_to_remembered_source_file_position();
+        print_error(ERROR_DIR, ".%s got an unexpected token. Expected INDEX, START, STEP or the end of the line.\n", c);
+        return FAILED;
       }
     }
 
     if (index_name[0] != 0) {
-      if (redefine(index_name, value, NULL, DEFINITION_TYPE_VALUE, 0) == FAILED)
+      if (redefine(index_name, (double)value, NULL, DEFINITION_TYPE_VALUE, 0) == FAILED)
         return FAILED;
     }
   }
@@ -9500,12 +11026,15 @@ int directive_rept_repeat_while(int is_while) {
 }
 
 
-int directive_endm(void) {
+static int _directive_endm(void) {
 
   struct definition_storage *storage;
   int q;
   
   if (g_macro_active != 0) {
+    if (_call_stack_item_pop() == FAILED)
+      return FAILED;
+
     g_macro_active--;
 
     /* macro call end */
@@ -9651,7 +11180,7 @@ int directive_endm(void) {
 
 #if defined(W65816)
 
-int directive_snesheader(void) {
+static int _directive_snesheader(void) {
 
   int token_result;
   
@@ -9768,7 +11297,7 @@ int directive_snesheader(void) {
     }
     else if (strcaselesscmp(g_tmp, "HIROM") == 0) {
       if (g_lorom_defined != 0 || g_exlorom_defined != 0 || g_exhirom_defined != 0) {
-        give_snes_rom_mode_defined_error(".HIROM");
+        _give_snes_rom_mode_defined_error(".HIROM");
         return FAILED;
       }
 
@@ -9776,7 +11305,7 @@ int directive_snesheader(void) {
     }
     else if (strcaselesscmp(g_tmp, "EXHIROM") == 0) {
       if (g_lorom_defined != 0 || g_exlorom_defined != 0 || g_hirom_defined != 0) {
-        give_snes_rom_mode_defined_error(".EXHIROM");
+        _give_snes_rom_mode_defined_error(".EXHIROM");
         return FAILED;
       }
 
@@ -9784,7 +11313,7 @@ int directive_snesheader(void) {
     }
     else if (strcaselesscmp(g_tmp, "LOROM") == 0) {
       if (g_hirom_defined != 0 || g_exlorom_defined != 0 || g_exhirom_defined != 0) {
-        give_snes_rom_mode_defined_error(".LOROM");
+        _give_snes_rom_mode_defined_error(".LOROM");
         return FAILED;
       }
 
@@ -9793,7 +11322,7 @@ int directive_snesheader(void) {
     /*
       else if (strcaselesscmp(g_tmp, "EXLOROM") == 0) {
       if (g_hirom_defined != 0 || g_lorom_defined != 0 || g_exhirom_defined != 0) {
-      give_snes_rom_mode_defined_error(".EXLOROM");
+      _give_snes_rom_mode_defined_error(".EXLOROM");
       return FAILED;
       }
 
@@ -9954,7 +11483,7 @@ int directive_snesheader(void) {
 }
 
 
-int directive_snesnativevector(void) {
+static int _directive_snesnativevector(void) {
   
   int cop_defined = 0, brk_defined = 0, abort_defined = 0, base_address = 0;
   int nmi_defined = 0, unused_defined = 0, irq_defined = 0, q, token_result;
@@ -10180,7 +11709,7 @@ int directive_snesnativevector(void) {
 }
 
 
-int directive_snesemuvector(void) {
+static int _directive_snesemuvector(void) {
   
   int cop_defined = 0, unused_defined = 0, abort_defined = 0, base_address = 0;
   int nmi_defined = 0, reset_defined = 0, irqbrk_defined = 0, q, token_result;
@@ -10408,7 +11937,7 @@ int directive_snesemuvector(void) {
 #endif
 
 
-int directive_print(void) {
+static int _directive_print(void) {
 
   int get_value, value_type, number_result;
 
@@ -10467,7 +11996,7 @@ int directive_print(void) {
 }
 
 
-int directive_printt(void) {
+static int _directive_printt(void) {
   
   int number_result;
     
@@ -10487,7 +12016,7 @@ int directive_printt(void) {
 }
 
 
-int directive_printv(void) {
+static int _directive_printv(void) {
 
   int m = 1, q;
 
@@ -10523,7 +12052,7 @@ int directive_printv(void) {
 }
 
 
-int directive_dbrnd_dwrnd(void) {
+static int _directive_dbrnd_dwrnd(void) {
   
   int o, c, min, max, f, q;
 
@@ -10609,7 +12138,7 @@ int directive_dbrnd_dwrnd(void) {
 }
 
 
-int directive_dwsin_dbsin_dwcos_dbcos(void) {
+static int _directive_dwsin_dbsin_dwcos_dbcos(void) {
   
   double m, a, s, n;
   int p, c, o, f, value;
@@ -10713,7 +12242,7 @@ int directive_dwsin_dbsin_dwcos_dbcos(void) {
 }
 
 
-int directive_stringmaptable(void) {
+static int _directive_stringmaptable(void) {
 
   int parse_result, line_number = 0;
   FILE *table_file;
@@ -10732,7 +12261,7 @@ int directive_stringmaptable(void) {
   }
 
   /* allocate and insert at the front of the chain */
-  map = calloc(sizeof(struct stringmaptable), 1);
+  map = calloc(1, sizeof(struct stringmaptable));
   if (map == NULL) {
     print_error(ERROR_ERR, "STRINGMAPTABLE: Out of memory error.\n");
     return FAILED;
@@ -10767,6 +12296,11 @@ int directive_stringmaptable(void) {
 
   table_file = fopen(map->filename, "r");
   if (table_file == NULL) {
+    if (find_file(map->filename, &table_file, NO, "r") == FAILED)
+      return FAILED;
+  }
+  
+  if (table_file == NULL) {
     if (g_makefile_skip_file_handling == YES) {
       /* if in makefile mode, this is not an error, we just make an empty map */
       return SUCCEEDED;
@@ -10793,7 +12327,7 @@ int directive_stringmaptable(void) {
     if (equals_pos == NULL)
       continue;
 
-    entry = calloc(sizeof(struct stringmap_entry), 1);
+    entry = calloc(1, sizeof(struct stringmap_entry));
     if (entry == NULL) {
       print_error(ERROR_DIR, "STRINGMAPTABLE: Out of memory error.\n");
       return FAILED;
@@ -10810,7 +12344,7 @@ int directive_stringmaptable(void) {
       return FAILED;
     }
     entry->bytes_length = char_count / 2 + char_count % 2;
-    entry->bytes = calloc(sizeof(unsigned char), entry->bytes_length);
+    entry->bytes = calloc(entry->bytes_length, sizeof(unsigned char));
     if (entry->bytes == NULL) {
       print_error(ERROR_DIR, "STRINGMAPTABLE: Out of memory error.\n");
       return FAILED;
@@ -10856,7 +12390,7 @@ int directive_stringmaptable(void) {
       return FAILED;
     }
     p = equals_pos + 1;
-    entry->text = calloc(sizeof(char), strlen(p) + 1);
+    entry->text = calloc(strlen(p) + 1, sizeof(char));
     if (entry->text == NULL) {
       print_error(ERROR_DIR, "STRINGMAPTABLE: Out of memory error.\n");
       return FAILED;
@@ -10870,7 +12404,7 @@ int directive_stringmaptable(void) {
 }
 
 
-int directive_stringmap(void) {
+static int _directive_stringmap(void) {
 
   int parse_result;
   struct stringmaptable *table;
@@ -10943,16 +12477,214 @@ int directive_stringmap(void) {
 }
 
 
-int directive_assert(void) {
+static int _assertion_skip_inline_spaces(void) {
+
+  while (g_buffer[g_source_index] == ' ' || g_buffer[g_source_index] == '\t')
+    g_source_index++;
+
+  return SUCCEEDED;
+}
+
+
+static int _assertion_parse_action(int *action) {
+
+  char action_name[32];
+  int i = 0;
+
+  *action = ASSERTION_ACTION_ERROR;
+
+  _assertion_skip_inline_spaces();
+  if (g_buffer[g_source_index] != ',')
+    return SUCCEEDED;
+  g_source_index++;
+  _assertion_skip_inline_spaces();
+
+  while (i < (int)sizeof(action_name) - 1) {
+    char c = g_buffer[g_source_index];
+
+    if (c == ' ' || c == '\t' || c == ',' || c == 0x0A || c == 0)
+      break;
+
+    action_name[i++] = c;
+    g_source_index++;
+  }
+  action_name[i] = 0;
+
+  if (i == 0) {
+    print_error(ERROR_INP, ".ASSERT needs an action after ','.\n");
+    return FAILED;
+  }
+
+  if (strcaselesscmp(action_name, "warning") == 0)
+    *action = ASSERTION_ACTION_WARNING;
+  else if (strcaselesscmp(action_name, "error") == 0)
+    *action = ASSERTION_ACTION_ERROR;
+  else if (strcaselesscmp(action_name, "ldwarning") == 0)
+    *action = ASSERTION_ACTION_LDWARNING;
+  else if (strcaselesscmp(action_name, "lderror") == 0)
+    *action = ASSERTION_ACTION_LDERROR;
+  else {
+    print_error(ERROR_INP, ".ASSERT action must be one of warning, error, ldwarning or lderror.\n");
+    return FAILED;
+  }
+
+  return SUCCEEDED;
+}
+
+
+static int _assertion_parse_message(char *message) {
 
   int q;
 
+  message[0] = 0;
+
+  _assertion_skip_inline_spaces();
+  if (g_buffer[g_source_index] != ',')
+    return SUCCEEDED;
+  g_source_index++;
+
+  q = input_number();
+  if (q == FAILED)
+    return FAILED;
+  if (q != INPUT_NUMBER_STRING) {
+    print_error(ERROR_INP, ".ASSERT message must be a string.\n");
+    return FAILED;
+  }
+
+  memcpy(message, g_label, g_string_size);
+  message[g_string_size] = 0;
+
+  return SUCCEEDED;
+}
+
+
+static int _assertion_add(struct stack *stack, int action, char *message) {
+
+  struct assertion *assertion;
+
+  assertion = calloc(1, sizeof(struct assertion));
+  if (assertion == NULL) {
+    print_error(ERROR_INP, "Out of memory while allocating a new assertion.\n");
+    return FAILED;
+  }
+
+  assertion->stack = stack;
+  assertion->action = action;
+  strcpy(assertion->message, message);
+
+  if (g_assertions_first == NULL) {
+    g_assertions_first = assertion;
+    g_assertions_last = assertion;
+  }
+  else {
+    g_assertions_last->next = assertion;
+    g_assertions_last = assertion;
+  }
+
+  return SUCCEEDED;
+}
+
+
+
+static int _assertion_create_condition_stack(int condition_start, int condition_end, int number_result, int parsed_int, double parsed_double, char *label, int latest_stack) {
+
+  if (number_result == INPUT_NUMBER_ADDRESS_LABEL)
+    return stack_create_label_stack(label);
+  else if (number_result == INPUT_NUMBER_STACK) {
+    g_latest_stack = latest_stack;
+    return SUCCEEDED;
+  }
+  else if (number_result == SUCCEEDED || number_result == INPUT_NUMBER_FLOAT) {
+    char *condition;
+    int condition_length = condition_end - condition_start;
+    int stack_result, bytes_parsed = 0, value = 0;
+    int resolve_stack_calculations = g_resolve_stack_calculations;
+    int input_parse_if = g_input_parse_if;
+
+    if (condition_length < 1) {
+      if (number_result == SUCCEEDED)
+        return stack_create_value_stack((double)parsed_int);
+      return stack_create_value_stack(parsed_double);
+    }
+
+    condition = malloc(condition_length + 1);
+    if (condition == NULL) {
+      print_error(ERROR_INP, "Out of memory while allocating an assertion condition.\n");
+      return FAILED;
+    }
+
+    memcpy(condition, &g_buffer[condition_start], condition_length);
+    condition[condition_length] = 0;
+
+    g_resolve_stack_calculations = NO;
+    g_input_parse_if = NO;
+    stack_result = stack_calculate(condition, &value, &bytes_parsed, NO);
+    g_input_parse_if = input_parse_if;
+    g_resolve_stack_calculations = resolve_stack_calculations;
+    free(condition);
+
+    if (stack_result == FAILED)
+      return FAILED;
+    if (stack_result == INPUT_NUMBER_STACK)
+      return SUCCEEDED;
+    if (number_result == SUCCEEDED)
+      return stack_create_value_stack((double)parsed_int);
+    return stack_create_value_stack(parsed_double);
+  }
+
+  return FAILED;
+}
+
+
+static int _directive_assert(void) {
+
+  char message[MAX_NAME_LENGTH + 1], label[MAX_NAME_LENGTH + 1];
+  int q, action, parsed_int, latest_stack, condition_start, condition_end;
+  double parsed_double;
+
+  condition_start = g_source_index;
   g_input_parse_if = YES;
   q = input_number();
   g_input_parse_if = NO;
+  condition_end = g_source_index;
 
   if (q == FAILED)
     return FAILED;
+
+  parsed_int = g_parsed_int;
+  parsed_double = g_parsed_double;
+  latest_stack = g_latest_stack;
+  strcpy(label, g_label);
+
+  if (_assertion_parse_action(&action) == FAILED)
+    return FAILED;
+  if (_assertion_parse_message(message) == FAILED)
+    return FAILED;
+
+  if (action == ASSERTION_ACTION_LDWARNING || action == ASSERTION_ACTION_LDERROR) {
+    struct stack *stack;
+
+    if (_assertion_create_condition_stack(condition_start, condition_end, q, parsed_int, parsed_double, label, latest_stack) == FAILED) {
+      print_error(ERROR_INP, ".ASSERT needs a condition.\n");
+      return FAILED;
+    }
+
+    stack = find_stack_calculation(g_latest_stack, YES);
+    if (stack == NULL)
+      return FAILED;
+
+    stack->address = 0;
+    stack->bank = g_bank;
+    stack->slot = g_current_slot;
+    stack->base = g_base;
+    stack->is_assertion_body = YES;
+    stack->position = STACK_POSITION_CODE;
+
+    fprintf(g_file_out_ptr, "~%d ", g_latest_stack);
+
+    return _assertion_add(stack, action, message);
+  }
+
   if (q != SUCCEEDED) {
     print_error(ERROR_INP, ".ASSERT needs immediate data.\n");
     return FAILED;
@@ -10961,14 +12693,27 @@ int directive_assert(void) {
   /* 0 = false, otherwise it's true */
   if (g_parsed_int != 0)
     return SUCCEEDED;
+
+  if (action == ASSERTION_ACTION_WARNING) {
+    if (message[0] != 0)
+      print_error(ERROR_WRN, ".ASSERT failed: %s\n", message);
+    else
+      print_error(ERROR_WRN, ".ASSERT failed.\n");
+
+    return SUCCEEDED;
+  }
   else {
-    print_error(ERROR_INP, ".ASSERT failed.\n");
+    if (message[0] != 0)
+      print_error(ERROR_INP, ".ASSERT failed: %s\n", message);
+    else
+      print_error(ERROR_INP, ".ASSERT failed.\n");
+
     return FAILED;
   }
 }
 
 
-int directive_rombanksize_banksize(void) {
+static int _directive_rombanksize_banksize(void) {
 
   int q;
   
@@ -10996,7 +12741,7 @@ int directive_rombanksize_banksize(void) {
 }
 
 
-int directive_break(void) {
+static int _directive_break(void) {
 
   int m, line_current = g_active_file_info_last->line_current;
   struct repeat_runtime *rr;
@@ -11048,7 +12793,581 @@ int directive_break(void) {
 }
 
 
-int directive_endr_continue(void) {
+#if defined(MCS6502)
+
+static int _inesheader_read_number(char *field_name, int min, int max, int *value) {
+
+  int q;
+
+  q = input_number();
+  if (q == FAILED)
+    return FAILED;
+  if (q != SUCCEEDED || g_parsed_int < min || g_parsed_int > max) {
+    print_error(ERROR_DIR, "%s needs a value between %d and %d, got %d.\n", field_name, min, max, g_parsed_int);
+    return FAILED;
+  }
+
+  *value = g_parsed_int;
+
+  return SUCCEEDED;
+}
+
+
+static int _inesheader_read_keyword(char *field_name, char *option_a, char *option_b, char *option_c, char *option_d, int *value) {
+
+  int token_result;
+
+  token_result = get_next_token();
+  if (token_result == FAILED)
+    return FAILED;
+
+  if (option_a != NULL && strcaselesscmp(g_tmp, option_a) == 0)
+    *value = 0;
+  else if (option_b != NULL && strcaselesscmp(g_tmp, option_b) == 0)
+    *value = 1;
+  else if (option_c != NULL && strcaselesscmp(g_tmp, option_c) == 0)
+    *value = 2;
+  else if (option_d != NULL && strcaselesscmp(g_tmp, option_d) == 0)
+    *value = 3;
+  else {
+    print_error(ERROR_DIR, "%s has an unknown option \"%s\".\n", field_name, g_tmp);
+    return FAILED;
+  }
+
+  return SUCCEEDED;
+}
+
+
+int directive_inesheader(void) {
+
+  int token_result, q;
+  int prg_rom_size, prg_rom_size_defined, chr_rom_size, mapper, mirroring;
+  int battery, trainer, four_screen, vs_unisystem, playchoice10;
+  int nes2, submapper, prg_ram_size, prg_ram_size_defined, tv_system, flags10;
+  int nes2_prg_ram, nes2_prg_nvram, nes2_chr_ram, nes2_chr_nvram;
+  int nes2_timing, nes2_vs_hardware, nes2_vs_ppu, nes2_misc_roms, nes2_expansion_device;
+  int nes2_field_used, i;
+
+  if (g_inesheader_defined == YES) {
+    print_error(ERROR_DIR, ".INESHEADER can be defined only once.\n");
+    return FAILED;
+  }
+
+  no_library_files(".INESHEADER");
+
+  prg_rom_size = 0;
+  prg_rom_size_defined = NO;
+  chr_rom_size = 0;
+  mapper = 0;
+  mirroring = 0;
+  battery = NO;
+  trainer = NO;
+  four_screen = NO;
+  vs_unisystem = NO;
+  playchoice10 = NO;
+  nes2 = NO;
+  submapper = 0;
+  prg_ram_size = 0;
+  prg_ram_size_defined = NO;
+  tv_system = 0;
+  flags10 = 0;
+  nes2_prg_ram = 0;
+  nes2_prg_nvram = 0;
+  nes2_chr_ram = 0;
+  nes2_chr_nvram = 0;
+  nes2_timing = 0;
+  nes2_vs_hardware = 0;
+  nes2_vs_ppu = 0;
+  nes2_misc_roms = 0;
+  nes2_expansion_device = 0;
+  nes2_field_used = NO;
+
+  while ((token_result = get_next_token()) == SUCCEEDED) {
+    if (g_tmp[0] == '.') {
+      q = parse_if_directive();
+      if (q == FAILED)
+        return FAILED;
+      else if (q == SUCCEEDED)
+        continue;
+    }
+
+    if (strcaselesscmp(g_tmp, ".ENDINES") == 0)
+      break;
+    else if (strcaselesscmp(g_tmp, "PRGROMSIZE") == 0) {
+      if (_inesheader_read_number("PRGROMSIZE", 0, 4095, &prg_rom_size) == FAILED)
+        return FAILED;
+      prg_rom_size_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "CHRROMSIZE") == 0) {
+      if (_inesheader_read_number("CHRROMSIZE", 0, 4095, &chr_rom_size) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "MAPPER") == 0) {
+      if (_inesheader_read_number("MAPPER", 0, 4095, &mapper) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "MIRRORING") == 0) {
+      if (_inesheader_read_keyword("MIRRORING", "HORIZONTAL", "VERTICAL", NULL, NULL, &mirroring) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "BATTERY") == 0)
+      battery = YES;
+    else if (strcaselesscmp(g_tmp, "TRAINER") == 0)
+      trainer = YES;
+    else if (strcaselesscmp(g_tmp, "FOURSCREEN") == 0)
+      four_screen = YES;
+    else if (strcaselesscmp(g_tmp, "VSUNISYSTEM") == 0 || strcaselesscmp(g_tmp, "VS") == 0)
+      vs_unisystem = YES;
+    else if (strcaselesscmp(g_tmp, "PLAYCHOICE10") == 0 || strcaselesscmp(g_tmp, "PLAYCHOICE") == 0)
+      playchoice10 = YES;
+    else if (strcaselesscmp(g_tmp, "NES2") == 0)
+      nes2 = YES;
+    else if (strcaselesscmp(g_tmp, "SUBMAPPER") == 0) {
+      if (_inesheader_read_number("SUBMAPPER", 0, 15, &submapper) == FAILED)
+        return FAILED;
+      nes2_field_used = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "PRGRAMSIZE") == 0) {
+      if (_inesheader_read_number("PRGRAMSIZE", 0, 255, &prg_ram_size) == FAILED)
+        return FAILED;
+      prg_ram_size_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "TVSYSTEM") == 0) {
+      if (_inesheader_read_keyword("TVSYSTEM", "NTSC", "PAL", "DUAL", "DENDY", &tv_system) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "FLAGS10") == 0) {
+      if (_inesheader_read_number("FLAGS10", 0, 255, &flags10) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "PRGRAM") == 0) {
+      if (_inesheader_read_number("PRGRAM", 0, 15, &nes2_prg_ram) == FAILED)
+        return FAILED;
+      nes2_field_used = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "PRGNVRAM") == 0) {
+      if (_inesheader_read_number("PRGNVRAM", 0, 15, &nes2_prg_nvram) == FAILED)
+        return FAILED;
+      nes2_field_used = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "CHRRAM") == 0) {
+      if (_inesheader_read_number("CHRRAM", 0, 15, &nes2_chr_ram) == FAILED)
+        return FAILED;
+      nes2_field_used = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "CHRNVRAM") == 0) {
+      if (_inesheader_read_number("CHRNVRAM", 0, 15, &nes2_chr_nvram) == FAILED)
+        return FAILED;
+      nes2_field_used = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "CPUPPUTIMING") == 0 || strcaselesscmp(g_tmp, "TIMING") == 0) {
+      if (_inesheader_read_keyword("CPUPPUTIMING", "NTSC", "PAL", "DUAL", "DENDY", &nes2_timing) == FAILED)
+        return FAILED;
+      nes2_field_used = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "VSHARDWARE") == 0) {
+      if (_inesheader_read_number("VSHARDWARE", 0, 15, &nes2_vs_hardware) == FAILED)
+        return FAILED;
+      nes2_field_used = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "VSPPUTYPE") == 0) {
+      if (_inesheader_read_number("VSPPUTYPE", 0, 15, &nes2_vs_ppu) == FAILED)
+        return FAILED;
+      nes2_field_used = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "MISCROMS") == 0) {
+      if (_inesheader_read_number("MISCROMS", 0, 3, &nes2_misc_roms) == FAILED)
+        return FAILED;
+      nes2_field_used = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "DEFAULTEXPANSIONDEVICE") == 0 || strcaselesscmp(g_tmp, "EXPANSIONDEVICE") == 0) {
+      if (_inesheader_read_number("DEFAULTEXPANSIONDEVICE", 0, 63, &nes2_expansion_device) == FAILED)
+        return FAILED;
+      nes2_field_used = YES;
+    }
+    else {
+      token_result = FAILED;
+      break;
+    }
+  }
+
+  if (token_result != SUCCEEDED) {
+    print_error(ERROR_DIR, "Error in .INESHEADER data structure.\n");
+    return FAILED;
+  }
+
+  if (prg_rom_size_defined == NO) {
+    print_error(ERROR_DIR, ".INESHEADER requires PRGROMSIZE.\n");
+    return FAILED;
+  }
+  if (nes2 == NO && (mapper > 255 || prg_rom_size > 255 || chr_rom_size > 255)) {
+    print_error(ERROR_DIR, "MAPPER, PRGROMSIZE and CHRROMSIZE must fit in iNES byte fields unless NES2 is used.\n");
+    return FAILED;
+  }
+  if (nes2 == NO && nes2_field_used == YES) {
+    print_error(ERROR_DIR, "NES 2.0-only fields require NES2 inside .INESHEADER.\n");
+    return FAILED;
+  }
+  if (nes2 == NO && tv_system > 1) {
+    print_error(ERROR_DIR, "TVSYSTEM DUAL and TVSYSTEM DENDY require NES2 inside .INESHEADER.\n");
+    return FAILED;
+  }
+  if (nes2 == YES && prg_ram_size_defined == YES) {
+    print_error(ERROR_DIR, "PRGRAMSIZE is an iNES byte-8 field; use PRGRAM and PRGNVRAM with NES2.\n");
+    return FAILED;
+  }
+  if (nes2 == YES && flags10 != 0) {
+    print_error(ERROR_DIR, "FLAGS10 is an iNES flags byte; use NES 2.0 fields with NES2.\n");
+    return FAILED;
+  }
+
+  for (i = 0; i < 16; i++)
+    g_inesheader[i] = 0;
+
+  g_inesheader[0] = 'N';
+  g_inesheader[1] = 'E';
+  g_inesheader[2] = 'S';
+  g_inesheader[3] = 0x1A;
+  g_inesheader[4] = prg_rom_size & 0xFF;
+  g_inesheader[5] = chr_rom_size & 0xFF;
+  g_inesheader[6] = ((mapper & 0x0F) << 4) | mirroring | (battery << 1) | (trainer << 2) | (four_screen << 3);
+  g_inesheader[7] = (mapper & 0xF0) | vs_unisystem | (playchoice10 << 1);
+
+  if (nes2 == YES) {
+    g_inesheader[7] |= 0x08;
+    g_inesheader[8] = ((submapper & 0x0F) << 4) | ((mapper >> 8) & 0x0F);
+    g_inesheader[9] = ((chr_rom_size >> 8) << 4) | ((prg_rom_size >> 8) & 0x0F);
+    g_inesheader[10] = ((nes2_prg_nvram & 0x0F) << 4) | (nes2_prg_ram & 0x0F);
+    g_inesheader[11] = ((nes2_chr_nvram & 0x0F) << 4) | (nes2_chr_ram & 0x0F);
+    g_inesheader[12] = nes2_timing & 0x03;
+    if (tv_system != 0)
+      g_inesheader[12] = tv_system & 0x03;
+    g_inesheader[13] = ((nes2_vs_ppu & 0x0F) << 4) | (nes2_vs_hardware & 0x0F);
+    g_inesheader[14] = nes2_misc_roms & 0x03;
+    g_inesheader[15] = nes2_expansion_device & 0x3F;
+  }
+  else {
+    g_inesheader[8] = prg_ram_size & 0xFF;
+    g_inesheader[9] = tv_system == 1 ? 1 : 0;
+    g_inesheader[10] = flags10 & 0xFF;
+  }
+
+  g_inesheader_defined = YES;
+
+  return SUCCEEDED;
+}
+
+#endif
+
+
+#if defined(WDC65C02)
+
+static int _lynxheader_read_number(char *field_name, int min, int max, int *value) {
+
+  int q;
+
+  q = input_number();
+  if (q == FAILED)
+    return FAILED;
+  if (q != SUCCEEDED || g_parsed_int < min || g_parsed_int > max) {
+    print_error(ERROR_DIR, "%s needs a value between %d and %d, got %d.\n", field_name, min, max, g_parsed_int);
+    return FAILED;
+  }
+
+  *value = g_parsed_int;
+
+  return SUCCEEDED;
+}
+
+
+static void _lynxheader_write_word(int offset, int value) {
+
+  g_lynxheader[offset] = value & 0xff;
+  g_lynxheader[offset + 1] = (value >> 8) & 0xff;
+}
+
+
+static int _lynxheader_valid_block_size(int value, int allow_zero) {
+
+  if (allow_zero == YES && value == 0)
+    return YES;
+
+  if (value == 0x100 || value == 0x200 || value == 0x400 || value == 0x800 || value == 0x1000)
+    return YES;
+
+  return NO;
+}
+
+
+static int _lynxheader_read_block_size(char *field_name, int allow_zero, int *value) {
+
+  if (_lynxheader_read_number(field_name, 0, 0x1000, value) == FAILED)
+    return FAILED;
+
+  if (_lynxheader_valid_block_size(*value, allow_zero) == NO) {
+    if (allow_zero == YES)
+      print_error(ERROR_DIR, "%s needs 0, $100, $200, $400, $800 or $1000.\n", field_name);
+    else
+      print_error(ERROR_DIR, "%s needs $100, $200, $400, $800 or $1000.\n", field_name);
+    return FAILED;
+  }
+
+  return SUCCEEDED;
+}
+
+
+static int _lynxheader_read_string(char *field_name, int offset, int length) {
+
+  int token_result, i;
+
+  token_result = get_next_token();
+  if (token_result == FAILED)
+    return FAILED;
+
+  if (token_result != GET_NEXT_TOKEN_STRING) {
+    print_error(ERROR_DIR, "%s requires a string.\n", field_name);
+    return FAILED;
+  }
+
+  if ((int)strlen(g_tmp) > length - 1) {
+    print_error(ERROR_DIR, "%s requires a string of 0 to %d letters.\n", field_name, length - 1);
+    return FAILED;
+  }
+
+  for (i = 0; i < length; i++)
+    g_lynxheader[offset + i] = 0;
+
+  for (i = 0; g_tmp[i] != 0; i++)
+    g_lynxheader[offset + i] = g_tmp[i];
+
+  return SUCCEEDED;
+}
+
+
+static int _lynxheader_read_rotation(int *value) {
+
+  int token_result;
+
+  token_result = get_next_token();
+  if (token_result == FAILED)
+    return FAILED;
+
+  if (strcaselesscmp(g_tmp, "NONE") == 0 || strcaselesscmp(g_tmp, "NO") == 0 || strcaselesscmp(g_tmp, "NOROTATE") == 0)
+    *value = 0;
+  else if (strcaselesscmp(g_tmp, "LEFT") == 0)
+    *value = 1;
+  else if (strcaselesscmp(g_tmp, "RIGHT") == 0)
+    *value = 2;
+  else {
+    print_error(ERROR_DIR, "ROTATION has an unknown option \"%s\".\n", g_tmp);
+    return FAILED;
+  }
+
+  return SUCCEEDED;
+}
+
+
+static int _lynxheader_read_audin(int *value) {
+
+  int token_result;
+
+  token_result = get_next_token();
+  if (token_result == FAILED)
+    return FAILED;
+
+  if (strcaselesscmp(g_tmp, "OFF") == 0 || strcaselesscmp(g_tmp, "NO") == 0 || strcaselesscmp(g_tmp, "FALSE") == 0)
+    *value = 0;
+  else if (strcaselesscmp(g_tmp, "ON") == 0 || strcaselesscmp(g_tmp, "YES") == 0 || strcaselesscmp(g_tmp, "TRUE") == 0)
+    *value = 1;
+  else {
+    print_error(ERROR_DIR, "AUDIN has an unknown option \"%s\".\n", g_tmp);
+    return FAILED;
+  }
+
+  return SUCCEEDED;
+}
+
+
+static int _lynxheader_read_eeprom(int *value) {
+
+  int token_result, flags;
+
+  token_result = get_next_token();
+  if (token_result == FAILED)
+    return FAILED;
+
+  flags = *value & 0xc0;
+
+  if (strcaselesscmp(g_tmp, "NONE") == 0 || strcaselesscmp(g_tmp, "NO") == 0)
+    *value = 0;
+  else if (strcaselesscmp(g_tmp, "93C46") == 0)
+    *value = flags | 1;
+  else if (strcaselesscmp(g_tmp, "93C56") == 0)
+    *value = flags | 2;
+  else if (strcaselesscmp(g_tmp, "93C66") == 0)
+    *value = flags | 3;
+  else if (strcaselesscmp(g_tmp, "93C76") == 0)
+    *value = flags | 4;
+  else if (strcaselesscmp(g_tmp, "93C86") == 0)
+    *value = flags | 5;
+  else if (strcaselesscmp(g_tmp, "93C46_8BIT") == 0)
+    *value = 0x80 | 1;
+  else if (strcaselesscmp(g_tmp, "93C56_8BIT") == 0)
+    *value = 0x80 | 2;
+  else if (strcaselesscmp(g_tmp, "93C66_8BIT") == 0)
+    *value = 0x80 | 3;
+  else if (strcaselesscmp(g_tmp, "93C76_8BIT") == 0)
+    *value = 0x80 | 4;
+  else if (strcaselesscmp(g_tmp, "93C86_8BIT") == 0)
+    *value = 0x80 | 5;
+  else if (strcaselesscmp(g_tmp, "93C46_16BIT") == 0)
+    *value = 1;
+  else if (strcaselesscmp(g_tmp, "93C56_16BIT") == 0)
+    *value = 2;
+  else if (strcaselesscmp(g_tmp, "93C66_16BIT") == 0)
+    *value = 3;
+  else if (strcaselesscmp(g_tmp, "93C76_16BIT") == 0)
+    *value = 4;
+  else if (strcaselesscmp(g_tmp, "93C86_16BIT") == 0)
+    *value = 5;
+  else {
+    print_error(ERROR_DIR, "EEPROM has an unknown option \"%s\".\n", g_tmp);
+    return FAILED;
+  }
+
+  return SUCCEEDED;
+}
+
+
+int directive_lynxheader(void) {
+
+  int token_result, q, i;
+  int bank0_block_size, bank1_block_size, version, rotation, audin, eeprom, spare0, spare1, spare2;
+  int bank0_block_size_defined;
+
+  if (g_lynxheader_defined == YES) {
+    print_error(ERROR_DIR, ".LYNXHEADER can be defined only once.\n");
+    return FAILED;
+  }
+
+  no_library_files(".LYNXHEADER");
+
+  for (i = 0; i < 64; i++)
+    g_lynxheader[i] = 0;
+
+  g_lynxheader[0] = 'L';
+  g_lynxheader[1] = 'Y';
+  g_lynxheader[2] = 'N';
+  g_lynxheader[3] = 'X';
+
+  bank0_block_size = 0;
+  bank1_block_size = 0;
+  version = 1;
+  rotation = 0;
+  audin = 0;
+  eeprom = 0;
+  spare0 = 0;
+  spare1 = 0;
+  spare2 = 0;
+  bank0_block_size_defined = NO;
+
+  while ((token_result = get_next_token()) == SUCCEEDED) {
+    if (g_tmp[0] == '.') {
+      q = parse_if_directive();
+      if (q == FAILED)
+        return FAILED;
+      else if (q == SUCCEEDED)
+        continue;
+    }
+
+    if (strcaselesscmp(g_tmp, ".ENDLYNX") == 0)
+      break;
+    else if (strcaselesscmp(g_tmp, "BANK0BLOCKSIZE") == 0 || strcaselesscmp(g_tmp, "BANK0PAGESIZE") == 0) {
+      if (_lynxheader_read_block_size("BANK0BLOCKSIZE", NO, &bank0_block_size) == FAILED)
+        return FAILED;
+      bank0_block_size_defined = YES;
+    }
+    else if (strcaselesscmp(g_tmp, "BANK1BLOCKSIZE") == 0 || strcaselesscmp(g_tmp, "BANK1PAGESIZE") == 0) {
+      if (_lynxheader_read_block_size("BANK1BLOCKSIZE", YES, &bank1_block_size) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "VERSION") == 0) {
+      if (_lynxheader_read_number("VERSION", 1, 1, &version) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "NAME") == 0 || strcaselesscmp(g_tmp, "CARTNAME") == 0) {
+      if (_lynxheader_read_string("NAME", 10, 32) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "MANUFACTURER") == 0 || strcaselesscmp(g_tmp, "MANUFACTURERNAME") == 0) {
+      if (_lynxheader_read_string("MANUFACTURER", 42, 16) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "ROTATION") == 0 || strcaselesscmp(g_tmp, "ROTATE") == 0) {
+      if (_lynxheader_read_rotation(&rotation) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "AUDIN") == 0) {
+      if (_lynxheader_read_audin(&audin) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "EEPROM") == 0) {
+      if (_lynxheader_read_eeprom(&eeprom) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "EEPROMVALUE") == 0) {
+      if (_lynxheader_read_number("EEPROMVALUE", 0, 255, &eeprom) == FAILED)
+        return FAILED;
+    }
+    else if (strcaselesscmp(g_tmp, "EEPROMSD") == 0)
+      eeprom |= 0x40;
+    else if (strcaselesscmp(g_tmp, "EEPROM8BIT") == 0)
+      eeprom |= 0x80;
+    else if (strcaselesscmp(g_tmp, "EEPROM16BIT") == 0)
+      eeprom &= ~0x80;
+    else if (strcaselesscmp(g_tmp, "SPARE") == 0) {
+      if (_lynxheader_read_number("SPARE", 0, 255, &spare0) == FAILED)
+        return FAILED;
+      if (_lynxheader_read_number("SPARE", 0, 255, &spare1) == FAILED)
+        return FAILED;
+      if (_lynxheader_read_number("SPARE", 0, 255, &spare2) == FAILED)
+        return FAILED;
+    }
+    else {
+      token_result = FAILED;
+      break;
+    }
+  }
+
+  if (token_result != SUCCEEDED) {
+    print_error(ERROR_DIR, "Error in .LYNXHEADER data structure.\n");
+    return FAILED;
+  }
+
+  if (bank0_block_size_defined == NO) {
+    print_error(ERROR_DIR, ".LYNXHEADER requires BANK0BLOCKSIZE.\n");
+    return FAILED;
+  }
+
+  _lynxheader_write_word(4, bank0_block_size);
+  _lynxheader_write_word(6, bank1_block_size);
+  _lynxheader_write_word(8, version);
+  g_lynxheader[58] = rotation;
+  g_lynxheader[59] = audin;
+  g_lynxheader[60] = eeprom;
+  g_lynxheader[61] = spare0;
+  g_lynxheader[62] = spare1;
+  g_lynxheader[63] = spare2;
+
+  g_lynxheader_defined = YES;
+
+  return SUCCEEDED;
+}
+
+#endif
+
+
+static int _directive_endr_continue(void) {
 
   struct repeat_runtime *rr;
   
@@ -11132,7 +13451,105 @@ int directive_endr_continue(void) {
 }
 
 
-int directive_fail(void) {
+static int _directive_changefile(void) {
+
+  int q;
+  
+  if (_call_stack_item_push() == FAILED)
+    return FAILED;
+
+  q = input_number();
+  if (q != SUCCEEDED) {
+    print_error(ERROR_DIR, "Internal error in (internal) .CHANGEFILE. Please submit a bug report...\n");
+    return FAILED;
+  }
+    
+  g_active_file_info_tmp = calloc(1, sizeof(struct active_file_info));
+  if (g_active_file_info_tmp == NULL) {
+    print_error(ERROR_DIR, "Out of memory while trying allocate error tracking data structure.\n");
+    return FAILED;
+  }
+  g_active_file_info_tmp->next = NULL;
+
+  if (g_active_file_info_first == NULL) {
+    g_active_file_info_first = g_active_file_info_tmp;
+    g_active_file_info_last = g_active_file_info_tmp;
+    g_active_file_info_tmp->prev = NULL;
+  }
+  else {
+    g_active_file_info_tmp->prev = g_active_file_info_last;
+    g_active_file_info_last->next = g_active_file_info_tmp;
+    g_active_file_info_last = g_active_file_info_tmp;
+  }
+      
+  g_active_file_info_tmp->line_current = 0;
+  g_active_file_info_tmp->filename_id = g_parsed_int;
+
+  if (g_extra_definitions == ON) {
+    g_file_name_info_tmp = g_file_name_info_first;
+    while (g_file_name_info_tmp != NULL) {
+      if (g_file_name_info_tmp->id == g_parsed_int)
+        break;
+      g_file_name_info_tmp = g_file_name_info_tmp->next;
+    }
+
+    if (g_file_name_info_tmp == NULL) {
+      print_error(ERROR_DIR, "Internal error: Could not find the name of file %d.\n", g_parsed_int);
+      return FAILED;
+    }
+
+    redefine("WLA_FILENAME", 0.0, g_file_name_info_tmp->name, DEFINITION_TYPE_STRING, (int)strlen(g_file_name_info_tmp->name));
+    redefine("wla_filename", 0.0, g_file_name_info_tmp->name, DEFINITION_TYPE_STRING, (int)strlen(g_file_name_info_tmp->name));
+  }
+
+  /* output the file id */
+  fprintf(g_file_out_ptr, "f%d ", g_active_file_info_tmp->filename_id);
+    
+  g_open_files++;
+
+  if (compare_next_token("NAMESPACE") == SUCCEEDED) {
+    skip_next_token();
+
+    g_expect_calculations = NO;
+    q = input_number();
+    g_expect_calculations = YES;
+    
+    if (q != INPUT_NUMBER_STRING && q != INPUT_NUMBER_ADDRESS_LABEL) {
+      print_error(ERROR_DIR, "Internal error: Namespace string is missing.\n");
+      return FAILED;
+    }
+
+    if (_is_namespace_valid(g_label) == NO)
+      return FAILED;
+
+    strcpy(g_active_file_info_tmp->namespace, g_label);
+
+    fprintf(g_file_out_ptr, "t1 %s ", g_active_file_info_tmp->namespace);
+  }
+  else if (compare_next_token("NONAMESPACE") == SUCCEEDED) {
+    skip_next_token();
+      
+    g_active_file_info_tmp->namespace[0] = 0;
+
+    fprintf(g_file_out_ptr, "t0 ");
+  }
+  else {
+    print_error(ERROR_DIR, "Internal error: NAMESPACE/NONAMESPACE is missing.\n");
+    return FAILED;
+  }
+
+  /* get the isolation counter */
+  g_expect_calculations = NO;
+  input_number();
+  g_expect_calculations = YES;
+      
+  g_is_file_isolated_counter = g_parsed_int;
+      
+  return SUCCEEDED;
+}
+
+
+static int _directive_fail(void) {
 
   int exit_value = 1, strings = 0, q;
   char s[1024];
@@ -11169,21 +13586,86 @@ int directive_fail(void) {
 }
 
 
+static int _directive_enum(void) {
+
+  int q;
+  
+  if (s_dstruct_status == ON) {
+    print_error(ERROR_DIR, "You can't use start an .ENUM inside .DSTRUCT.\n");
+    return FAILED;
+  }
+
+  q = input_number();
+  if (q == FAILED)
+    return FAILED;
+  if (q != SUCCEEDED) {
+    print_error(ERROR_DIR, ".ENUM needs a starting value.\n");
+    return FAILED;
+  }
+      
+  s_enum_offset = 0;
+  s_last_enum_offset = 0;
+  s_max_enum_offset = 0;
+  s_base_enum_offset = g_parsed_int;
+      
+  /* "ASC" or "DESC"? */
+  if (compare_next_token("ASC") == SUCCEEDED) {
+    s_enum_ord = 1;
+    skip_next_token();
+  }
+  else if (compare_next_token("DESC") == SUCCEEDED) {
+    s_enum_ord = -1;
+    skip_next_token();
+  }
+  else
+    s_enum_ord = 1;
+
+  /* do we have "EXPORT" defined? */
+  if (compare_next_token("EXPORT") == SUCCEEDED) {
+    skip_next_token();
+    s_enum_export = YES;
+  }
+  else
+    s_enum_export = NO;
+
+  /* setup s_active_struct (enum vars stored here temporarily) */
+  s_active_struct = calloc(1, sizeof(struct structure));
+  if (s_active_struct == NULL) {
+    print_error(ERROR_DIR, "Out of memory while parsing .ENUM.\n");
+    return FAILED;
+  }
+  s_active_struct->alive = YES;
+
+  if (_remember_new_structure(s_active_struct) == FAILED)
+    return FAILED;
+
+  s_active_struct->name[0] = '\0';
+  s_active_struct->items = NULL;
+  s_active_struct->last_item = NULL;
+  s_union_stack = NULL;
+
+  g_in_enum = YES;
+
+  return SUCCEEDED;
+}
+
+
 int parse_directive(void) {
 
   char c, directive_upper[MAX_NAME_LENGTH + 1];
   int q, i, length;
 
-  if ((q = parse_if_directive()) != -1)
-    return q;
-
   /* make valgrind happy */
   directive_upper[0] = 0;
-  
+
+  q = parse_if_directive();
+  if (q != -1)
+    return q;
+
   /* convert the directive to upper case */
   length = (int)strlen(g_current_directive);
   for (i = 0; i < length; i++)
-    directive_upper[i] = toupper(g_current_directive[i]);
+    directive_upper[i] = toupper((int)g_current_directive[i]);
   directive_upper[i] = 0;
 
   c = directive_upper[0];
@@ -11227,6 +13709,29 @@ int parse_directive(void) {
     
   case 'A':
 
+#if defined(EZ80)
+    /* ADL */
+    if (strcmp(directive_upper, "ADL") == 0) {
+      q = get_next_token();
+
+      if (q != SUCCEEDED) {
+        print_error(ERROR_DIR, ".ADL expects ON or OFF.\n");
+        return FAILED;
+      }
+
+      if (strcaselesscmp(g_tmp, "ON") == 0)
+        g_ez80_adl_mode = 1;
+      else if (strcaselesscmp(g_tmp, "OFF") == 0)
+        g_ez80_adl_mode = 0;
+      else {
+        print_error(ERROR_DIR, ".ADL expects ON or OFF.\n");
+        return FAILED;
+      }
+
+      return SUCCEEDED;
+    }
+#endif
+
 #if defined(W65816)
     /* ACCU */
     if (strcmp(directive_upper, "ACCU") == 0) {
@@ -11239,52 +13744,63 @@ int parse_directive(void) {
         return FAILED;
       }
 
+      /* Warn when .ACCU overrides a rep/sep-tracked width - this typically
+       * means the assembler's linear tracking diverged from runtime at a
+       * branch merge point. Only warn when the mismatch comes from rep/sep
+       * (not from the assembler's initial default), to avoid false positives
+       * at the start of functions where .ACCU sets the initial width. */
+      if (g_accu_size != g_parsed_int && g_accu_set_by_rep_sep && g_verbose_level >= 100)
+        print_error(ERROR_WRN, ".ACCU %d overrides rep/sep tracking of %d-bit. Likely a branch merge point where linear tracking diverged from runtime.\n", g_parsed_int, g_accu_size);
+
       g_accu_size = g_parsed_int;
-      
+      g_accu_set_by_rep_sep = 0;
+
       return SUCCEEDED;
     }
 #endif
 
     /* ALIGN */
     if (strcmp(directive_upper, "ALIGN") == 0)
-      return directive_align();
+      return _directive_align();
     
     /* ASCTABLE/ASCIITABLE? */
     if (strcmp(directive_upper, "ASCTABLE") == 0 || strcmp(directive_upper, "ASCIITABLE") == 0)
-      return directive_asctable_asciitable();
+      return _directive_asctable_asciitable();
     
     /* ASC/ASCSTR? */
     if (strcmp(directive_upper, "ASC") == 0 || strcmp(directive_upper, "ASCSTR") == 0)
-      return directive_asc();
-
-    /* ARRAYDEF/ARRAYDEFINE? */
-    if (strcmp(directive_upper, "ARRAYDEF") == 0 || strcmp(directive_upper, "ARRAYDEFINE") == 0)
-      return directive_arraydef_arraydefine();
-
-    /* ARRAYIN? */
-    if (strcmp(directive_upper, "ARRAYIN") == 0)
-      return directive_arrayin();
-
-    /* ARRAYOUT? */
-    if (strcmp(directive_upper, "ARRAYOUT") == 0)
-      return directive_arrayout();
-
-    /* ARRAYDB/ARRAYDW/ARRAYDL/ARRAYDD? */
-    if (strcmp(directive_upper, "ARRAYDB") == 0 || strcmp(directive_upper, "ARRAYDW") == 0 || strcmp(directive_upper, "ARRAYDL") == 0 || strcmp(directive_upper, "ARRAYDD") == 0)
-      return directive_arraydb_arraydw_arraydl_arraydd();
+      return _directive_asc();
 
     /* ADDR? */
     if (strcmp(directive_upper, "ADDR") == 0)
-      return directive_dw_word_addr();
+      return _directive_dw_word_addr();
     
     /* ASM */
     if (strcmp(directive_upper, "ASM") == 0)
       return SUCCEEDED;
 
+    /* ARRAYIN? */
+    if (strcmp(directive_upper, "ARRAYIN") == 0)
+      return _directive_arrayin();
+
+    if (length > 6 && strncmp(directive_upper, "ARRAY", 5) == 0) {
+      /* ARRAYDEF/ARRAYDEFINE? */
+      if (strcmp(directive_upper, "ARRAYDEF") == 0 || strcmp(directive_upper, "ARRAYDEFINE") == 0)
+        return _directive_arraydef_arraydefine();
+
+      /* ARRAYOUT? */
+      if (strcmp(directive_upper, "ARRAYOUT") == 0)
+        return _directive_arrayout();
+    
+      /* ARRAYDB/ARRAYDW/ARRAYDL/ARRAYDD? */
+      if (strcmp(directive_upper, "ARRAYDB") == 0 || strcmp(directive_upper, "ARRAYDW") == 0 || strcmp(directive_upper, "ARRAYDL") == 0 || strcmp(directive_upper, "ARRAYDD") == 0)
+        return _directive_arraydb_arraydw_arraydl_arraydd();
+    }
+    
     /* ASSERT */
     if (strcmp(directive_upper, "ASSERT") == 0)
-      return directive_assert();
-    
+      return _directive_assert();
+
     break;
 
   case 'B':
@@ -11299,7 +13815,7 @@ int parse_directive(void) {
     else if (length == 3) {
       /* BYT? */
       if (strcmp(directive_upper, "BYT") == 0)
-        return directive_db_byt_byte();
+        return _directive_db_byt_byte();
     }
     else if (length == 4) {
       /* BASE? */
@@ -11323,15 +13839,15 @@ int parse_directive(void) {
 
       /* BYTE? */
       if (strcmp(directive_upper, "BYTE") == 0)
-        return directive_db_byt_byte();
+        return _directive_db_byt_byte();
 
       /* BANK */
       if (strcmp(directive_upper, "BANK") == 0)
-        return directive_bank();
+        return _directive_bank();
 
       /* BITS? */
       if (strcmp(directive_upper, "BITS") == 0)
-        return directive_bits();
+        return _directive_bits();
     }
     else {
       /* BREAKPOINT? */
@@ -11342,19 +13858,19 @@ int parse_directive(void) {
 
       /* BREAK */
       if (strcmp(directive_upper, "BREAK") == 0)
-        return directive_break();
+        return _directive_break();
 
       /* BLOCK */
       if (strcmp(directive_upper, "BLOCK") == 0)
-        return directive_block();
+        return _directive_block();
       
       /* BACKGROUND */
       if (strcmp(directive_upper, "BACKGROUND") == 0)
-        return directive_background();
+        return _directive_background();
 
       /* BANKSIZE */
       if (strcmp(directive_upper, "BANKSIZE") == 0)
-        return directive_rombanksize_banksize();
+        return _directive_rombanksize_banksize();
     }
     
     break;
@@ -11480,100 +13996,12 @@ int parse_directive(void) {
 #endif
     
     /* CHANGEFILE (INTERNAL) */
-    if (strcmp(directive_upper, "CHANGEFILE") == 0) {
-      q = input_number();
-      if (q != SUCCEEDED) {
-        print_error(ERROR_DIR, "Internal error in (internal) .CHANGEFILE. Please submit a bug report...\n");
-        return FAILED;
-      }
-    
-      g_active_file_info_tmp = calloc(sizeof(struct active_file_info), 1);
-      if (g_active_file_info_tmp == NULL) {
-        print_error(ERROR_DIR, "Out of memory while trying allocate error tracking data structure.\n");
-        return FAILED;
-      }
-      g_active_file_info_tmp->next = NULL;
-
-      if (g_active_file_info_first == NULL) {
-        g_active_file_info_first = g_active_file_info_tmp;
-        g_active_file_info_last = g_active_file_info_tmp;
-        g_active_file_info_tmp->prev = NULL;
-      }
-      else {
-        g_active_file_info_tmp->prev = g_active_file_info_last;
-        g_active_file_info_last->next = g_active_file_info_tmp;
-        g_active_file_info_last = g_active_file_info_tmp;
-      }
-      
-      g_active_file_info_tmp->line_current = 0;
-      g_active_file_info_tmp->filename_id = g_parsed_int;
-
-      if (g_extra_definitions == ON) {
-        g_file_name_info_tmp = g_file_name_info_first;
-        while (g_file_name_info_tmp != NULL) {
-          if (g_file_name_info_tmp->id == g_parsed_int)
-            break;
-          g_file_name_info_tmp = g_file_name_info_tmp->next;
-        }
-
-        if (g_file_name_info_tmp == NULL) {
-          print_error(ERROR_DIR, "Internal error: Could not find the name of file %d.\n", g_parsed_int);
-          return FAILED;
-        }
-
-        redefine("WLA_FILENAME", 0.0, g_file_name_info_tmp->name, DEFINITION_TYPE_STRING, (int)strlen(g_file_name_info_tmp->name));
-        redefine("wla_filename", 0.0, g_file_name_info_tmp->name, DEFINITION_TYPE_STRING, (int)strlen(g_file_name_info_tmp->name));
-      }
-
-      /* output the file id */
-      fprintf(g_file_out_ptr, "f%d ", g_active_file_info_tmp->filename_id);
-    
-      g_open_files++;
-
-      if (compare_next_token("NAMESPACE") == SUCCEEDED) {
-        skip_next_token();
-
-        g_expect_calculations = NO;
-        q = input_number();
-        g_expect_calculations = YES;
-    
-        if (q != INPUT_NUMBER_STRING && q != INPUT_NUMBER_ADDRESS_LABEL) {
-          print_error(ERROR_DIR, "Internal error: Namespace string is missing.\n");
-          return FAILED;
-        }
-
-        if (_is_namespace_valid(g_label) == NO)
-          return FAILED;
-
-        strcpy(g_active_file_info_tmp->namespace, g_label);
-
-        fprintf(g_file_out_ptr, "t1 %s ", g_active_file_info_tmp->namespace);
-      }
-      else if (compare_next_token("NONAMESPACE") == SUCCEEDED) {
-        skip_next_token();
-      
-        g_active_file_info_tmp->namespace[0] = 0;
-
-        fprintf(g_file_out_ptr, "t0 ");
-      }
-      else {
-        print_error(ERROR_DIR, "Internal error: NAMESPACE/NONAMESPACE is missing.\n");
-        return FAILED;
-      }
-
-      /* get the isolation counter */
-      g_expect_calculations = NO;
-      input_number();
-      g_expect_calculations = YES;
-      
-      g_is_file_isolated_counter = g_parsed_int;
-      
-      return SUCCEEDED;
-    }
+    if (strcmp(directive_upper, "CHANGEFILE") == 0)
+      return _directive_changefile();
     
     /* CONTINUE */
     if (strcmp(directive_upper, "CONTINUE") == 0)
-      return directive_endr_continue();
+      return _directive_endr_continue();
 
     break;
     
@@ -11582,23 +14010,23 @@ int parse_directive(void) {
     if (length == 2) {
       /* DB? */
       if (strcmp(directive_upper, "DB") == 0)
-        return directive_db_byt_byte();
+        return _directive_db_byt_byte();
 
       /* DW? */
       if (strcmp(directive_upper, "DW") == 0)
-        return directive_dw_word_addr();
+        return _directive_dw_word_addr();
 
       /* DD? */
       if (strcmp(directive_upper, "DD") == 0)
-        return directive_dd();
+        return _directive_dd();
 
       /* DL? */
       if (strcmp(directive_upper, "DL") == 0)
-        return directive_dl_long_faraddr();
+        return _directive_dl_long_faraddr();
 
       /* DS? */
       if (strcmp(directive_upper, "DS") == 0)
-        return directive_dsb_ds();
+        return _directive_dsb_ds();
     }
     else if (length == 3) {
       /* DEF */
@@ -11607,52 +14035,60 @@ int parse_directive(void) {
 
       /* DSB? */
       if (strcmp(directive_upper, "DSB") == 0)
-        return directive_dsb_ds();
+        return _directive_dsb_ds();
 
       /* DSW? */
       if (strcmp(directive_upper, "DSW") == 0)
-        return directive_dsw();
+        return _directive_dsw();
 
       /* DSL? */
       if (strcmp(directive_upper, "DSL") == 0)
-        return directive_dsl();
+        return _directive_dsl();
 
       /* DSD? */
       if (strcmp(directive_upper, "DSD") == 0)
-        return directive_dsd();
+        return _directive_dsd();
 
       /* DBM/DWM? */
       if (strcmp(directive_upper, "DBM") == 0 || strcmp(directive_upper, "DWM") == 0)
-        return directive_dbm_dwm_dlm_ddm_filter();
+        return _directive_dbm_dwm_dlm_ddm_filter();
       
       /* DLM? */
       if (strcmp(directive_upper, "DLM") == 0)
-        return directive_dbm_dwm_dlm_ddm_filter();
+        return _directive_dbm_dwm_dlm_ddm_filter();
 
       /* DDM? */
       if (strcmp(directive_upper, "DDM") == 0)
-        return directive_dbm_dwm_dlm_ddm_filter();
+        return _directive_dbm_dwm_dlm_ddm_filter();
     }
     else {
       /* DEFINE */
       if (strcmp(directive_upper, "DEFINE") == 0)
         return directive_define_def_equ();
 
+      /* DELMACRO */
+      if (strcmp(directive_upper, "DELMACRO") == 0)
+        return _directive_delmacro();
+
+      /* DELFUNCTION */
+      if (strcmp(directive_upper, "DELFUNCTION") == 0)
+        return _directive_delfunction();
+
       /* DATA? */
       if (strcmp(directive_upper, "DATA") == 0)
-        return directive_row_data();
+        return _directive_row_data();
 
       /* DSTRUCT */
       if (strcmp(directive_upper, "DSTRUCT") == 0)
-        return directive_dstruct();
+        return _directive_dstruct();
 
       /* DBRND/DWRND */
       if (strcmp(directive_upper, "DBRND") == 0 || strcmp(directive_upper, "DWRND") == 0)
-        return directive_dbrnd_dwrnd();
+        return _directive_dbrnd_dwrnd();
 
       /* DWSIN/DBSIN/DWCOS/DBCOS */
       if (strcmp(directive_upper, "DWSIN") == 0 || strcmp(directive_upper, "DBSIN") == 0 || strcmp(directive_upper, "DWCOS") == 0 || strcmp(directive_upper, "DBCOS") == 0)
-        return directive_dwsin_dbsin_dwcos_dbcos();
+        return _directive_dwsin_dbsin_dwcos_dbcos();
     
 #if defined(GB)
       /* DESTINATIONCODE */
@@ -11725,7 +14161,10 @@ int parse_directive(void) {
           g_is_file_isolated_counter--;
         if (g_is_file_isolated_counter == 1)
           g_is_file_isolated_counter = 0;
-          
+
+        if (_call_stack_item_pop() == FAILED)
+          return FAILED;
+        
         return SUCCEEDED;
       }
     }
@@ -11737,6 +14176,13 @@ int parse_directive(void) {
     else if (length == 4) {
       /* ENDS */
       if (strcmp(directive_upper, "ENDS") == 0) {
+#if defined(W65816)
+        /* Reset rep/sep tracking at section boundaries - a new section is a
+         * new context, so previous rep/sep state is irrelevant. */
+        g_accu_set_by_rep_sep = 0;
+        g_index_set_by_rep_sep = 0;
+#endif
+
         if (g_section_status == OFF) {
           print_error(ERROR_DIR, "There is no open section.\n");
           return FAILED;
@@ -11755,7 +14201,12 @@ int parse_directive(void) {
         g_in_ramsection = NO;
         
         fprintf(g_file_out_ptr, "s ");
-        
+
+        if (g_base_backup >= 0) {
+          g_base = g_base_backup;
+          g_base_backup = -1;
+        }
+  
         return SUCCEEDED;
       }
       
@@ -11774,72 +14225,15 @@ int parse_directive(void) {
 
       /* ENDM */
       if (strcmp(directive_upper, "ENDM") == 0)
-        return directive_endm();
+        return _directive_endm();
     
       /* ENDR */
       if (strcmp(directive_upper, "ENDR") == 0)
-        return directive_endr_continue();
+        return _directive_endr_continue();
 
       /* ENUM */
-      if (strcmp(directive_upper, "ENUM") == 0) {
-        if (s_dstruct_status == ON) {
-          print_error(ERROR_DIR, "You can't use start an .ENUM inside .DSTRUCT.\n");
-          return FAILED;
-        }
-
-        q = input_number();
-        if (q == FAILED)
-          return FAILED;
-        if (q != SUCCEEDED) {
-          print_error(ERROR_DIR, ".ENUM needs a starting value.\n");
-          return FAILED;
-        }
-      
-        s_enum_offset = 0;
-        s_last_enum_offset = 0;
-        s_max_enum_offset = 0;
-        s_base_enum_offset = g_parsed_int;
-      
-        /* "ASC" or "DESC"? */
-        if (compare_next_token("ASC") == SUCCEEDED) {
-          s_enum_ord = 1;
-          skip_next_token();
-        }
-        else if (compare_next_token("DESC") == SUCCEEDED) {
-          s_enum_ord = -1;
-          skip_next_token();
-        }
-        else
-          s_enum_ord = 1;
-
-        /* do we have "EXPORT" defined? */
-        if (compare_next_token("EXPORT") == SUCCEEDED) {
-          skip_next_token();
-          s_enum_export = YES;
-        }
-        else
-          s_enum_export = NO;
-
-        /* setup s_active_struct (enum vars stored here temporarily) */
-        s_active_struct = calloc(sizeof(struct structure), 1);
-        if (s_active_struct == NULL) {
-          print_error(ERROR_DIR, "Out of memory while parsing .ENUM.\n");
-          return FAILED;
-        }
-        s_active_struct->alive = YES;
-
-        if (_remember_new_structure(s_active_struct) == FAILED)
-          return FAILED;
-
-        s_active_struct->name[0] = '\0';
-        s_active_struct->items = NULL;
-        s_active_struct->last_item = NULL;
-        s_union_stack = NULL;
-
-        g_in_enum = YES;
-
-        return SUCCEEDED;
-      }
+      if (strcmp(directive_upper, "ENUM") == 0)
+        return _directive_enum();
     }
     else {    
       /* ENDBITS? */
@@ -11905,11 +14299,11 @@ int parse_directive(void) {
 
       /* ENUMID */
       if (strcmp(directive_upper, "ENUMID") == 0)
-        return directive_enumid();
+        return _directive_enumid();
 
       /* EXPORT */
       if (strcmp(directive_upper, "EXPORT") == 0)
-        return directive_export();
+        return _directive_export();
 
 #if defined(W65816)  
       /* EXHIROM */
@@ -11917,7 +14311,7 @@ int parse_directive(void) {
         no_library_files(".EXHIROM");
 
         if (g_lorom_defined != 0 || g_exlorom_defined != 0 || g_hirom_defined != 0) {
-          give_snes_rom_mode_defined_error(".EXHIROM");
+          _give_snes_rom_mode_defined_error(".EXHIROM");
           return FAILED;
         }
 
@@ -11933,7 +14327,7 @@ int parse_directive(void) {
         no_library_files(".EXLOROM");
         
         if (g_hirom_defined != 0 || g_lorom_defined != 0 || g_exhirom_defined != 0) {
-        give_snes_rom_mode_defined_error(".EXLOROM");
+        _give_snes_rom_mode_defined_error(".EXLOROM");
         return FAILED;
         }
         
@@ -11952,43 +14346,43 @@ int parse_directive(void) {
 
     /* FUNCTION */
     if (strcmp(directive_upper, "FUNCTION") == 0)
-      return directive_function();
+      return _directive_function();
 
     /* FILTER? */
     if (strcmp(directive_upper, "FILTER") == 0)
-      return directive_dbm_dwm_dlm_ddm_filter();
+      return _directive_dbm_dwm_dlm_ddm_filter();
 
     /* FARADDR? */
     if (strcmp(directive_upper, "FARADDR") == 0)
-      return directive_dl_long_faraddr();
+      return _directive_dl_long_faraddr();
 
     /* FOPEN */
     if (strcmp(directive_upper, "FOPEN") == 0)
-      return directive_fopen();
+      return _directive_fopen();
 
     /* FCLOSE */
     if (strcmp(directive_upper, "FCLOSE") == 0)
-      return directive_fclose();
+      return _directive_fclose();
 
     /* FSIZE */
     if (strcmp(directive_upper, "FSIZE") == 0)
-      return directive_fsize();
+      return _directive_fsize();
 
     /* FREAD */
     if (strcmp(directive_upper, "FREAD") == 0)
-      return directive_fread();
+      return _directive_fread();
 
     /* FTELL */
     if (strcmp(directive_upper, "FTELL") == 0)
-      return directive_ftell();
+      return _directive_ftell();
 
     /* FSEEK */
     if (strcmp(directive_upper, "FSEEK") == 0)
-      return directive_fseek();
+      return _directive_fseek();
 
     /* FAIL */
     if (strcmp(directive_upper, "FAIL") == 0)
-      return directive_fail();
+      return _directive_fail();
 
 #if defined(W65816)  
     /* FASTROM */
@@ -12014,7 +14408,7 @@ int parse_directive(void) {
 #if defined(GB)
     /* GBHEADER */
     if (strcmp(g_current_directive, "GBHEADER") == 0)
-      return directive_gbheader();
+      return _directive_gbheader();
 #endif
 
     break;
@@ -12023,7 +14417,7 @@ int parse_directive(void) {
 
     /* HEX? */
     if (strcmp(directive_upper, "HEX") == 0)
-      return directive_hex();
+      return _directive_hex();
 
 #if defined(W65816)  
     /* HIROM */
@@ -12031,7 +14425,7 @@ int parse_directive(void) {
       no_library_files(".HIROM");
 
       if (g_lorom_defined != 0 || g_exlorom_defined != 0 || g_exhirom_defined != 0) {
-        give_snes_rom_mode_defined_error(".HIROM");
+        _give_snes_rom_mode_defined_error(".HIROM");
         return FAILED;
       }
 
@@ -12046,6 +14440,12 @@ int parse_directive(void) {
 
   case 'I':
 
+#if defined(MCS6502)
+    /* INESHEADER */
+    if (strcmp(directive_upper, "INESHEADER") == 0)
+      return directive_inesheader();
+#endif
+
 #if defined(W65816)
     /* INDEX */
     if (strcmp(directive_upper, "INDEX") == 0) {
@@ -12058,7 +14458,11 @@ int parse_directive(void) {
         return FAILED;
       }
 
+      if (g_index_size != g_parsed_int && g_index_set_by_rep_sep && g_verbose_level >= 100)
+        print_error(ERROR_WRN, ".INDEX %d overrides rep/sep tracking of %d-bit. Likely a branch merge point where linear tracking diverged from runtime.\n", g_parsed_int, g_index_size);
+
       g_index_size = g_parsed_int;
+      g_index_set_by_rep_sep = 0;
 
       return SUCCEEDED;
     }
@@ -12066,23 +14470,23 @@ int parse_directive(void) {
     
     /* INCDIR */
     if (strcmp(directive_upper, "INCDIR") == 0)
-      return directive_incdir();
+      return _directive_incdir();
 
     /* INCLUDE/INC */
     if (strcmp(directive_upper, "INCLUDE") == 0 || strcmp(directive_upper, "INC") == 0)
-      return directive_include(YES);
+      return _directive_include(YES);
 
     /* INDLUDE/IND (INTERNAL) */
     if (strcmp(directive_upper, "INDLUDE") == 0 || strcmp(directive_upper, "IND") == 0)
-      return directive_include(NO);
+      return _directive_include(NO);
 
     /* INCBIN */
     if (strcmp(directive_upper, "INCBIN") == 0)
-      return directive_incbin();
+      return _directive_incbin();
 
     /* INPUT */
     if (strcmp(directive_upper, "INPUT") == 0)
-      return directive_input();
+      return _directive_input();
 
     break;
     
@@ -12090,7 +14494,13 @@ int parse_directive(void) {
 
     /* LONG? */
     if (strcmp(directive_upper, "LONG") == 0)
-      return directive_dl_long_faraddr();
+      return _directive_dl_long_faraddr();
+
+#if defined(WDC65C02)
+    /* LYNXHEADER */
+    if (strcmp(directive_upper, "LYNXHEADER") == 0)
+      return directive_lynxheader();
+#endif
 
 #if defined(GB)
     /* LICENSEECODENEW */
@@ -12170,7 +14580,7 @@ int parse_directive(void) {
       no_library_files(".LOROM");
 
       if (g_hirom_defined != 0 || g_exlorom_defined != 0 || g_exhirom_defined != 0) {
-        give_snes_rom_mode_defined_error(".LOROM");
+        _give_snes_rom_mode_defined_error(".LOROM");
         return FAILED;
       }
 
@@ -12187,7 +14597,7 @@ int parse_directive(void) {
 
     /* MACRO */
     if (strcmp(directive_upper, "MACRO") == 0)
-      return directive_macro();
+      return _directive_macro();
 
     /* M */
     if (strcmp(directive_upper, "M") == 0) {
@@ -12200,16 +14610,44 @@ int parse_directive(void) {
 
     /* MEMORYMAP */
     if (strcmp(directive_upper, "MEMORYMAP") == 0)
-      return directive_memorymap();
+      return _directive_memorymap();
+
+#if defined(MC68000)
+    /* MDVECTORS */
+    if (strcmp(directive_upper, "MDVECTORS") == 0)
+      return directive_mdvectors();
+
+    /* MCDHEADER */
+    if (strcmp(directive_upper, "MCDHEADER") == 0)
+      return directive_mcdheader();
+
+    /* MCDSPHEADER */
+    if (strcmp(directive_upper, "MCDSPHEADER") == 0)
+      return directive_mcdspheader();
+#endif
 
     break;
     
   case 'N':
 
+#if defined(MC68000)
+    /* NGHEADER */
+    if (strcmp(directive_upper, "NGHEADER") == 0)
+      return directive_ngheader();
+
+    /* NGSOFTDIP */
+    if (strcmp(directive_upper, "NGSOFTDIP") == 0)
+      return directive_ngsoftdip();
+
+    /* NGVECTORS */
+    if (strcmp(directive_upper, "NGVECTORS") == 0)
+      return directive_ngvectors();
+#endif
+
 #if defined(W65816)
     /* NAME */
     if (strcmp(directive_upper, "NAME") == 0)
-      return directive_name_w65816();
+      return _directive_name_w65816();
 
     /* NOWDC */
     if (strcmp(directive_upper, "NOWDC") == 0) {
@@ -12230,7 +14668,7 @@ int parse_directive(void) {
   
     /* NAME */
     if (strcmp(directive_upper, "NAME") == 0)
-      return directive_name_gb();
+      return _directive_name_gb();
 #endif
     
     break;
@@ -12239,11 +14677,11 @@ int parse_directive(void) {
 
     /* ORG */
     if (strcmp(directive_upper, "ORG") == 0)
-      return directive_org();
+      return _directive_org();
 
     /* ORGA */
     if (strcmp(directive_upper, "ORGA") == 0)
-      return directive_orga();
+      return _directive_orga();
 
     /* OUTNAME */
     if (strcmp(directive_upper, "OUTNAME") == 0) {
@@ -12269,15 +14707,15 @@ int parse_directive(void) {
 
     /* PRINT */
     if (strcmp(directive_upper, "PRINT") == 0)
-      return directive_print();
+      return _directive_print();
   
     /* PRINTT */
     if (strcmp(directive_upper, "PRINTT") == 0)
-      return directive_printt();
+      return _directive_printt();
 
     /* PRINTV */
     if (strcmp(directive_upper, "PRINTV") == 0)
-      return directive_printv();
+      return _directive_printv();
 
     break;
     
@@ -12285,27 +14723,27 @@ int parse_directive(void) {
 
     /* REPT/REPEAT */
     if (strcmp(directive_upper, "REPT") == 0 || strcmp(directive_upper, "REPEAT") == 0)
-      return directive_rept_repeat_while(NO);
+      return _directive_rept_repeat_while(NO);
 
     /* REDEFINE/REDEF */
     if (strcmp(directive_upper, "REDEFINE") == 0 || strcmp(directive_upper, "REDEF") == 0)
-      return directive_redefine_redef();
+      return _directive_redefine_redef();
 
     /* ROW? */
     if (strcmp(directive_upper, "ROW") == 0)
-      return directive_row_data();
+      return _directive_row_data();
 
     /* ROMBANKS */
     if (strcmp(directive_upper, "ROMBANKS") == 0)
-      return directive_rombanks();
+      return _directive_rombanks();
 
     /* ROMBANKMAP */
     if (strcmp(directive_upper, "ROMBANKMAP") == 0)
-      return directive_rombankmap();
+      return _directive_rombankmap();
 
     /* RAMSECTION */
     if (strcmp(directive_upper, "RAMSECTION") == 0)
-      return directive_ramsection();
+      return _directive_ramsection();
 
 #if defined(GB)
     /* RAMSIZE */
@@ -12444,7 +14882,7 @@ int parse_directive(void) {
 
     /* ROMBANKSIZE */
     if (strcmp(directive_upper, "ROMBANKSIZE") == 0)
-      return directive_rombanksize_banksize();
+      return _directive_rombanksize_banksize();
 
     break;
     
@@ -12452,19 +14890,19 @@ int parse_directive(void) {
 
     /* SECTION */
     if (strcmp(directive_upper, "SECTION") == 0)
-      return directive_section();
+      return _directive_section();
 
     /* STRUCT */
     if (strcmp(directive_upper, "STRUCT") == 0)
-      return directive_struct();
+      return _directive_struct();
 
     /* SHIFT */
     if (strcmp(directive_upper, "SHIFT") == 0)
-      return directive_shift();
+      return _directive_shift();
 
     /* SLOT */
     if (strcmp(directive_upper, "SLOT") == 0)
-      return directive_slot();
+      return _directive_slot();
 
     /* SYM/SYMBOL */
     if (strcmp(directive_upper, "SYM") == 0 || strcmp(directive_upper, "SYMBOL") == 0) {
@@ -12480,11 +14918,11 @@ int parse_directive(void) {
     
     /* STRINGMAPTABLE */
     if (strcmp(directive_upper, "STRINGMAPTABLE") == 0)
-      return directive_stringmaptable();
+      return _directive_stringmaptable();
     
     /* STRINGMAP */
     if (strcmp(directive_upper, "STRINGMAP") == 0)
-      return directive_stringmap();
+      return _directive_stringmap();
 
     /* SEED */
     if (strcmp(directive_upper, "SEED") == 0) {
@@ -12523,17 +14961,17 @@ int parse_directive(void) {
 
     /* SMSHEADER */
     if (strcmp(g_current_directive, "SMSHEADER") == 0)
-      return directive_smsheader();
+      return _directive_smsheader();
   
     /* SDSCTAG */
     if (strcmp(directive_upper, "SDSCTAG") == 0)
-      return directive_sdsctag();
+      return _directive_sdsctag();
 #endif
 
 #if defined(MC68000)
     /* SMDHEADER */
     if (strcmp(g_current_directive, "SMDHEADER") == 0)
-      return directive_smdheader();
+      return _directive_smdheader();
 #endif
     
 #if defined(W65816)  
@@ -12564,15 +15002,15 @@ int parse_directive(void) {
 
     /* SNESHEADER */
     if (strcmp(directive_upper, "SNESHEADER") == 0)
-      return directive_snesheader();
+      return _directive_snesheader();
 
     /* SNESNATIVEVECTOR */
     if (strcmp(directive_upper, "SNESNATIVEVECTOR") == 0)
-      return directive_snesnativevector();
+      return _directive_snesnativevector();
 
     /* SNESEMUVECTOR */
     if (strcmp(directive_upper, "SNESEMUVECTOR") == 0)
-      return directive_snesemuvector();
+      return _directive_snesemuvector();
 #endif
     
     break;
@@ -12581,7 +15019,7 @@ int parse_directive(void) {
 
     /* TABLE? */
     if (strcmp(directive_upper, "TABLE") == 0)
-      return directive_table();
+      return _directive_table();
 
     break;
 
@@ -12589,11 +15027,11 @@ int parse_directive(void) {
     
     /* UNDEF/UNDEFINE */
     if (strcmp(directive_upper, "UNDEF") == 0 || strcmp(directive_upper, "UNDEFINE") == 0)
-      return directive_undef_undefine();
+      return _directive_undef_undefine();
 
     /* UNBACKGROUND */
     if (strcmp(directive_upper, "UNBACKGROUND") == 0)
-      return directive_unbackground();
+      return _directive_unbackground();
 
     break;
 
@@ -12634,11 +15072,11 @@ int parse_directive(void) {
 
     /* WHILE */
     if (strcmp(directive_upper, "WHILE") == 0)
-      return directive_rept_repeat_while(YES);
+      return _directive_rept_repeat_while(YES);
 
     /* WORD? */
     if (strcmp(directive_upper, "WORD") == 0)
-      return directive_dw_word_addr();
+      return _directive_dw_word_addr();
 
 #if defined(W65816)
     /* WDC */
@@ -12648,6 +15086,9 @@ int parse_directive(void) {
     }
 #endif
     
+    break;
+
+  default:
     break;
   }
   
@@ -13257,7 +15698,7 @@ int export_a_definition(char *name) {
     export = export->next;
   }
 
-  export = calloc(sizeof(struct export_def), 1);
+  export = calloc(1, sizeof(struct export_def));
   if (export == NULL) {
     print_error(ERROR_DIR, "Out of memory while allocating room for \".EXPORT %s\".\n", name);
     return FAILED;

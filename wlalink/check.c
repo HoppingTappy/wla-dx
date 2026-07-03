@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "defines.h"
+#include "check.h"
 #include "memory.h"
 #include "files.h"
 #include "main.h"
@@ -26,9 +27,9 @@ int check_file_types(void) {
   
   o = g_obj_first;
   while (o != NULL) {
-    if (strncmp((char *)o->data, "WLAl", 4) == 0)
+    if (strncmp((char *)o->data, "WLAn", 4) == 0)
       o->format = WLA_VERSION_OBJ;
-    else if (strncmp((char *)o->data, "WLAI", 4) == 0)
+    else if (strncmp((char *)o->data, "WLAK", 4) == 0)
       o->format = WLA_VERSION_LIB;
     else {
       print_text(NO, "CHECK_FILE_TYPES: File \"%s\" is of unknown format (\"%c%c%c%c\").\n", o->name, o->data[0], o->data[1], o->data[2], o->data[3]);
@@ -67,7 +68,8 @@ static char *_get_snes_rom_mode(int mode) {
 
 int check_headers(void) {
 
-  int count = 0, misc_bits, e;
+  int count = 0, misc_bits, e, files_count = 0, sh2_files_count = 0;
+  char *first_sh2_file = NULL, *first_non_sh2_file = NULL;
   struct object_file *o;
   unsigned char *t;
   
@@ -91,6 +93,11 @@ int check_headers(void) {
         o->cpu_65ce02 = YES;
       else
         o->cpu_65ce02 = NO;
+
+      if ((extr_bits & 16) != 0)
+        o->cpu_sh2 = YES;
+      else
+        o->cpu_sh2 = NO;
       
       if (((more_bits >> 7) & 1) != 0)
         o->little_endian = NO;
@@ -217,6 +224,11 @@ int check_headers(void) {
       else
         o->cpu_65ce02 = NO;
 
+      if ((misc_bits & 8) != 0)
+        o->cpu_sh2 = YES;
+      else
+        o->cpu_sh2 = NO;
+
       if ((misc_bits & 2) != 0)
         o->cpu_65816 = YES;
       else
@@ -228,7 +240,21 @@ int check_headers(void) {
         o->little_endian = YES;
     }
     
+    files_count++;
+    if (o->cpu_sh2 == YES) {
+      sh2_files_count++;
+      if (first_sh2_file == NULL)
+        first_sh2_file = o->name;
+    }
+    else if (first_non_sh2_file == NULL)
+      first_non_sh2_file = o->name;
+
     o = o->next;
+  }
+
+  if (sh2_files_count != 0 && sh2_files_count != files_count) {
+    print_text(NO, "CHECK_HEADERS: Cannot mix SH-2 file \"%s\" with non-SH-2 file \"%s\".\n", first_sh2_file, first_non_sh2_file);
+    return FAILED;
   }
 
   if (count == 0) {

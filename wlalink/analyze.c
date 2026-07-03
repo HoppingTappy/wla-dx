@@ -39,6 +39,7 @@ extern struct object_file *g_obj_first, *g_obj_last, *g_obj_tmp;
 extern struct reference *g_reference_first, *g_reference_last;
 extern struct section *g_sec_first, *g_sec_last, *g_sec_bankhd_first, *g_sec_bankhd_last;
 extern struct stack *g_stacks_first, *g_stacks_last;
+extern struct assertion *g_assertions_first, *g_assertions_last;
 extern struct label *g_labels_first, *g_labels_last;
 extern struct map_t *g_global_unique_label_map;
 extern struct map_t *g_namespace_map;
@@ -206,6 +207,182 @@ int add_stack(struct stack *sta) {
 }
 
 
+static int _add_assertion(struct assertion *assertion) {
+
+  assertion->next = NULL;
+
+  if (g_assertions_first == NULL) {
+    g_assertions_first = assertion;
+    g_assertions_last = assertion;
+  }
+  else {
+    g_assertions_last->next = assertion;
+    g_assertions_last = assertion;
+  }
+
+  return SUCCEEDED;
+}
+
+
+static int _read_bounded_string(unsigned char **tp, char *out, const char *description) {
+
+  unsigned char *t = *tp;
+  int q;
+
+  for (q = 0; q < MAX_NAME_LENGTH && *t != 0; t++, q++)
+    out[q] = *t;
+  out[q] = 0;
+
+  if (*t != 0) {
+    print_text(NO, "COLLECT_DLR: %s is too long or missing a NUL terminator.\n", description);
+    return FAILED;
+  }
+
+  t++;
+  *tp = t;
+
+  return SUCCEEDED;
+}
+
+
+static int _read_stack_items(unsigned char **tp, struct stack *s) {
+
+  unsigned char *t = *tp, *dtmp;
+  double dou;
+  int n;
+
+  for (n = 0; n != s->stacksize; n++) {
+    s->stack_items[n].slot = -1;
+    s->stack_items[n].base = -1;
+    s->stack_items[n].bank = -1;
+    s->stack_items[n].stack_file_id = -1;
+    s->stack_items[n].type = *(t++);
+    s->stack_items[n].sign = *(t++);
+    if (s->stack_items[n].type == STACK_ITEM_TYPE_LABEL || s->stack_items[n].type == STACK_ITEM_TYPE_STRING) {
+      if (_read_bounded_string(&t, s->stack_items[n].string, "Stack item string") == FAILED)
+        return FAILED;
+    }
+    else {
+      READ_DOU;
+      s->stack_items[n].value_ram = dou;
+      s->stack_items[n].value_rom = dou;
+    }
+  }
+
+  *tp = t;
+
+  return SUCCEEDED;
+}
+
+
+static int _read_assertions(unsigned char **tp, int section_id_base, int include_slot_bank_base) {
+
+  unsigned char *t = *tp;
+  struct assertion *assertion;
+  struct stack *s;
+  int i, x;
+
+  i = READ_T;
+
+  for (; i > 0; i--) {
+    assertion = calloc(1, sizeof(struct assertion));
+    if (assertion == NULL) {
+      print_text(NO, "COLLECT_DLR: Out of memory.\n");
+      return FAILED;
+    }
+
+    assertion->action = *(t++);
+    if (_read_bounded_string(&t, assertion->message, "Assertion message") == FAILED) {
+      free(assertion);
+      return FAILED;
+    }
+
+    s = calloc(1, sizeof(struct stack));
+    if (s == NULL) {
+      print_text(NO, "COLLECT_DLR: Out of memory.\n");
+      free(assertion);
+      return FAILED;
+    }
+
+    s->id = READ_T;
+    s->type = *(t++);
+    if ((s->type & ~(1 << 7)) == STACK_TYPE_ASSERT) {
+      s->type = STACK_TYPE_UNKNOWN;
+      s->relative_references = NO;
+      s->special_id = 0;
+    }
+    else
+      s->special_id = *(t++);
+    s->section = READ_T;
+    if (s->section == 0)
+      s->section_status = OFF;
+    else {
+      s->section_status = ON;
+      s->section += section_id_base;
+    }
+    s->file_id_source = READ_T;
+    x = *(t++);
+    s->position = *(t++);
+
+    if (s->type == STACK_TYPE_BITS) {
+      s->bits_position = *(t++);
+      s->bits_to_define = *(t++);
+    }
+    else {
+      s->bits_position = 0;
+      s->bits_to_define = 0;
+    }
+
+    if (include_slot_bank_base == YES)
+      s->slot = *(t++);
+
+    s->address = READ_T;
+    s->linenumber = READ_T;
+    s->stacksize = x;
+
+    if (include_slot_bank_base == YES) {
+      s->bank = READ_T;
+      s->base = READ_T;
+    }
+    else {
+      s->bank = g_obj_tmp->bank;
+      s->slot = g_obj_tmp->slot;
+      s->base = g_obj_tmp->base;
+    }
+
+    s->is_assertion_body = YES;
+    s->stack_items = calloc(x, sizeof(struct stack_item));
+    if (s->stack_items == NULL) {
+      print_text(NO, "COLLECT_DLR: Out of memory.\n");
+      free(s);
+      free(assertion);
+      return FAILED;
+    }
+
+    if (_read_stack_items(&t, s) == FAILED) {
+      free(s->stack_items);
+      free(s);
+      free(assertion);
+      return FAILED;
+    }
+
+    if (add_stack(s) == FAILED) {
+      free(s->stack_items);
+      free(s);
+      free(assertion);
+      return FAILED;
+    }
+
+    assertion->stack = s;
+    _add_assertion(assertion);
+  }
+
+  *tp = t;
+
+  return SUCCEEDED;
+}
+
+
 /*
 static void _print_section_id_tables(void) {
 
@@ -314,7 +491,7 @@ int add_section(struct section *s) {
 
   if (pointer_array == NULL) {
     /* allocate container for this table */
-    pointer_array = calloc(sizeof(struct pointer_array), 1);
+    pointer_array = calloc(1, sizeof(struct pointer_array));
     if (pointer_array == NULL) {
       print_text(NO, "%s: ADD_SECTION: Out of memory with section \"%s\".\n", g_obj_tmp->name, s->name);
       return FAILED;
@@ -559,7 +736,7 @@ int obtain_source_file_names(void) {
 
     p = &(o->source_file_names_list);
     for (; x > 0; x--) {
-      s = calloc(sizeof(struct source_file_name), 1);
+      s = calloc(1, sizeof(struct source_file_name));
       if (s == NULL) {
         print_text(NO, "COLLECT_DLR: Out of memory.\n");
         return FAILED;
@@ -814,7 +991,7 @@ int collect_dlr(void) {
 
       /* load references */
       for (; i > 0; i--) {
-        r = calloc(sizeof(struct reference), 1);
+        r = calloc(1, sizeof(struct reference));
         if (r == NULL) {
           print_text(NO, "COLLECT_DLR: Out of memory.\n");
           return FAILED;
@@ -829,6 +1006,10 @@ int collect_dlr(void) {
 
         if (r->type == REFERENCE_TYPE_BITS) {
           r->bits_position = *(t++);
+          r->bits_to_define = *(t++);
+        }
+        else if (r->type == REFERENCE_TYPE_DIRECT_8BIT_MAX_BITS) {
+          r->bits_position = 0;
           r->bits_to_define = *(t++);
         }
         else {
@@ -856,7 +1037,7 @@ int collect_dlr(void) {
 
       /* load pending calculations */
       for (; i > 0; i--) {
-        s = calloc(sizeof(struct stack), 1);
+        s = calloc(1, sizeof(struct stack));
         if (s == NULL) {
           print_text(NO, "COLLECT_DLR: Out of memory.\n");
           return FAILED;
@@ -892,7 +1073,7 @@ int collect_dlr(void) {
         s->base = READ_T;
         s->stacksize = x;
         
-        s->stack_items = calloc(sizeof(struct stack_item) * x, 1);
+        s->stack_items = calloc(x, sizeof(struct stack_item));
         if (s->stack_items == NULL) {
           print_text(NO, "COLLECT_DLR: Out of memory.\n");
           free(s);
@@ -922,13 +1103,16 @@ int collect_dlr(void) {
         }
       }
 
+      if (_read_assertions(&t, section_id_base, YES) == FAILED)
+        return FAILED;
+
       /* label sizeofs */
       i = READ_T;
 
       while (i > 0) {
         i--;
 
-        ls = calloc(sizeof(struct label_sizeof), 1);
+        ls = calloc(1, sizeof(struct label_sizeof));
         if (ls == NULL) {
           print_text(NO, "COLLECT_DLR: Out of memory.\n");
           return FAILED;
@@ -1073,7 +1257,7 @@ int collect_dlr(void) {
 
       /* load references */
       for (; i > 0; i--) {
-        r = calloc(sizeof(struct reference), 1);
+        r = calloc(1, sizeof(struct reference));
         if (r == NULL) {
           print_text(NO, "COLLECT_DLR: Out of memory.\n");
           return FAILED;
@@ -1090,6 +1274,10 @@ int collect_dlr(void) {
 
         if (r->type == REFERENCE_TYPE_BITS) {
           r->bits_position = *(t++);
+          r->bits_to_define = *(t++);
+        }
+        else if (r->type == REFERENCE_TYPE_DIRECT_8BIT_MAX_BITS) {
+          r->bits_position = 0;
           r->bits_to_define = *(t++);
         }
         else {
@@ -1112,7 +1300,7 @@ int collect_dlr(void) {
 
       /* load pending calculations */
       for (; i > 0; i--) {
-        s = calloc(sizeof(struct stack), 1);
+        s = calloc(1, sizeof(struct stack));
         if (s == NULL) {
           print_text(NO, "COLLECT_DLR: Out of memory.\n");
           return FAILED;
@@ -1148,7 +1336,7 @@ int collect_dlr(void) {
         s->slot = g_obj_tmp->slot;
         s->base = g_obj_tmp->base;
         
-        s->stack_items = calloc(sizeof(struct stack_item) * x, 1);
+        s->stack_items = calloc(x, sizeof(struct stack_item));
         if (s->stack_items == NULL) {
           print_text(NO, "COLLECT_DLR: Out of memory.\n");
           free(s);
@@ -1178,13 +1366,16 @@ int collect_dlr(void) {
         }
       }
 
+      if (_read_assertions(&t, section_id_base, NO) == FAILED)
+        return FAILED;
+
       /* label sizeofs */
       i = READ_T;
 
       while (i > 0) {
         i--;
 
-        ls = calloc(sizeof(struct label_sizeof), 1);
+        ls = calloc(1, sizeof(struct label_sizeof));
         if (ls == NULL) {
           print_text(NO, "COLLECT_DLR: Out of memory.\n");
           return FAILED;
@@ -1350,7 +1541,7 @@ static void _kill_label(char *name, struct section *s) {
 
 static struct sort_capsule *_create_sort_capsule(void) {
 
-  struct sort_capsule *sc = calloc(sizeof(struct sort_capsule), 1);
+  struct sort_capsule *sc = calloc(1, sizeof(struct sort_capsule));
 
   if (sc == NULL) {
     print_text(NO, "_create_sort_capsule(): Out of memory error.\n");
@@ -1940,7 +2131,7 @@ int parse_data_blocks(void) {
               return FAILED;
         }
         else if (x == DATA_TYPE_SECTION) {
-          s = calloc(sizeof(struct section), 1);
+          s = calloc(1, sizeof(struct section));
           if (s == NULL) {
             print_text(NO, "PARSE_DATA_BLOCKS: Out of memory.\n");
             return FAILED;
@@ -1971,7 +2162,7 @@ int parse_data_blocks(void) {
 
             hashmap_get(g_namespace_map, buf, (void*)&nspace);
             if (nspace == NULL) {
-              nspace = calloc(sizeof(struct namespace_def), 1);
+              nspace = calloc(1, sizeof(struct namespace_def));
               if (nspace == NULL) {
                 print_text(NO, "PARSE_DATA_BLOCKS: Out of memory.\n");
                 return FAILED;
@@ -2033,7 +2224,7 @@ int parse_data_blocks(void) {
       t = g_obj_tmp->data_blocks;
       p = g_obj_tmp->data + g_obj_tmp->size;
       for ( ; t < p; ) {
-        s = calloc(sizeof(struct section), 1);
+        s = calloc(1, sizeof(struct section));
         if (s == NULL) {
           print_text(NO, "PARSE_DATA_BLOCKS: Out of memory.\n");
           return FAILED;
@@ -2063,7 +2254,7 @@ int parse_data_blocks(void) {
 
           hashmap_get(g_namespace_map, buf, (void*)&nspace);
           if (nspace == NULL) {
-            nspace = calloc(sizeof(struct namespace_def), 1);
+            nspace = calloc(1, sizeof(struct namespace_def));
             if (nspace == NULL) {
               print_text(NO, "PARSE_DATA_BLOCKS: Out of memory.\n");
               return FAILED;

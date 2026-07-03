@@ -4,6 +4,9 @@
 
 struct listfileitem {
   char *sourcefilename;
+  char *outputfilename;
+  struct object_file *owner;
+  char *real_sourcefilename;
   int  linenumber;
   int  real_linenumber;
   int  address;
@@ -13,6 +16,7 @@ struct listfileitem {
   int  bank;
   int  slot;
   int  running_id;
+  int  generated;
   struct section *section;
 };
 

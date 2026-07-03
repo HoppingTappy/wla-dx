@@ -3,7 +3,7 @@ NOTE! integers are in big endian format.
 
 
 
-WLA GB-Z80/Z80/Z80N/6502/65C02/65CE02/65816/68000/6800/6801/6809/K053248/8008/8080/HuC6280/SPC-700/SuperFX object file format "WLAk"
+WLA GB-Z80/Z80/Z80N/eZ80/6502/65C02/65CE02/65816/68000/6800/6801/6809/K053248/8008/8080/HuC6280/SH-2/SPC-700/SuperFX/Cx4 object file format "WLAn"
 
 
 bytes   description
@@ -32,7 +32,8 @@ header:
   1     extr bits (bit 0 - 65ce02 indicator (1 == 65ce02)
                    bit 1 - sms checksum was already written (1 == yes)
                    bit 2 - use a special range for sms checksum calculation (1 == yes)
-                   bit 3 - sega mega drive checksum (1 == compute))
+                   bit 3 - sega mega drive checksum (1 == compute)
+                   bit 4 - SH-2 indicator (1 == SH-2))
   4     special range for sms checksum calculation (int)
   4     base address for SMS ROM header (int)
 
@@ -91,8 +92,12 @@ outside references:
   ...
   n     label (0 terminated)
   1     type (0 = direct 16-bit, 1 = relative 8-bit, 2 = direct 8-bit, 3 = direct 24-bit,
-              4 = relative 16-bit, 5 = direct 13-bit, 6 = direct 32-bit, 7 = bits, 8 = 9-bit short)
-  1     special case ID (0 == not a special case, 1 == Z80/GB-Z80 RST, 2 == 8008 RST, 3 == 8080 RST, 4 == flip endianess)
+              4 = relative 16-bit, 5 = direct 13-bit, 6 = direct 32-bit, 7 = bits,
+              8 = 9-bit short, 9 = relative 16-bit wrap around, 10 = direct 8-bit max bits,
+              11 = CX4 10-bit, 12 = SH-2 relative 8-bit, 13 = SH-2 relative 12-bit,
+              14 = SH-2 PC-relative 8-bit)
+  1     special case ID (0 == not a special case, 1 == Z80/GB-Z80 RST, 2 == 8008 RST, 3 == 8080 RST, 4 == flip endianess,
+                         SH-2 relative 12-bit high opcode nibble or PC-relative scale when applicable)
   4     file id (int)
   1     bits starting position (0-7, only present if result type == 7)
   1     bits to define (1-32, only present if result type == 7)
@@ -110,7 +115,7 @@ pending calculations:
   ...
   4     id (int)
   1     result type (0 = 8-bit, 1 = 16-bit, 2 = 24-bit, 3 = unknown, 4 = 13-bit, 5 = 32-bit, 6 = bits,
-                     7 = 9-bit short)
+                     7 = 9-bit short, 8 = 16-bit wrap around, 9 = 10-bit, 10 = 7-bit, 11 = assert)
         if bit 7 == 1, then the label references are relative, else absolute
   1     special case ID (0 == not a special case, 1 == Z80/GB-Z80 RST, 2 == 8008 RST, 3 == 8080 RST, 4 == flip endianess)
   4     section (0 = no section, 1+ = section id) (int)
@@ -119,6 +124,33 @@ pending calculations:
   1     position (0 = definition, 1 = elsewhere)
   1     bits starting position (0-7, only present if result type == 6)
   1     bits to define (1-32, only present if result type == 6)
+  1     slot number (0-255)
+  4     relative address (int)
+  4     line number (int)
+  4     bank number (int)
+  4     base (int)
+  ...
+  1     type (0 = value, 1 = operator, 2 = label, 3 = deleted, 4 = stack, 5 = string)
+  1     sign (0 = positive, 1 = negative)
+  8     value (double) OR
+  n     string (0 terminated)
+  ...
+  ...
+
+assertions:
+
+  4     number of assertions (int)
+  ...
+  1     action (3 = linker warning, 4 = linker error)
+  n     message (0 terminated)
+        The following fields are the assertion expression as a simplified calculation stack record.
+        WLALINK evaluates it as a boolean and does not write its value to output.
+  4     stack id (int), used for stack lookup if this expression is referenced by another stack
+  1     stack/result type (11 = assert)
+  4     section (0 = no section, 1+ = section id) (int)
+  4     file id (int)
+  1     number of stack items
+  1     position (0 = definition, 1 = elsewhere)
   1     slot number (0-255)
   4     relative address (int)
   4     line number (int)
@@ -206,7 +238,8 @@ header:
         "WLAI" - WLA-GB/Z80/Z80N/6502/65C02/65CE02/65816/68000/6800/6801/6809/K053248/8008/8080/HuC6280/SPC-700/SuperFX library file version 29 (02-Apr-2022)
   1     misc bits (bit 0 - endianess (1 = big endian)
                    bit 1 - 65816 indicator (1 == 65816)
-                   bit 2 - 65ce02 indicator (1 == 65ce02))
+                   bit 2 - 65ce02 indicator (1 == 65ce02)
+                   bit 3 - SH-2 indicator (1 == SH-2))
   
 source file name list:
 
@@ -242,8 +275,12 @@ outside references:
   ...
   n     label (0 terminated)
   1     type (0 = direct 16-bit, 1 = relative 8-bit, 2 = direct 8-bit, 3 = direct 24-bit,
-              4 = relative 16-bit, 5 = direct 13-bit, 6 = direct 32-bit, 7 = bits, 8 = 9-bit short)
-  1     special case ID (0 == not a special case, 1 == Z80/GB-Z80 RST, 2 == 8008 RST, 3 == 8080 RST, 4 == flip endianess)
+              4 = relative 16-bit, 5 = direct 13-bit, 6 = direct 32-bit, 7 = bits,
+              8 = 9-bit short, 9 = relative 16-bit wrap around, 10 = direct 8-bit max bits,
+              11 = CX4 10-bit, 12 = SH-2 relative 8-bit, 13 = SH-2 relative 12-bit,
+              14 = SH-2 PC-relative 8-bit)
+  1     special case ID (0 == not a special case, 1 == Z80/GB-Z80 RST, 2 == 8008 RST, 3 == 8080 RST, 4 == flip endianess,
+                         SH-2 relative 12-bit high opcode nibble or PC-relative scale when applicable)
   4     section (1+ = section id) (int)
   4     file id (int)
   1     bits starting position (0-7, only present if result type == 7)
@@ -258,7 +295,7 @@ pending calculations:
   ...
   4     id (int)
   1     result type (0 = 8-bit, 1 = 16-bit, 2 = 24-bit, 3 = unknown, 4 = 13-bit, 5 = 32-bit, 6 = bits,
-                     7 = 9-bit short)
+                     7 = 9-bit short, 8 = 16-bit wrap around, 9 = 10-bit, 10 = 7-bit, 11 = assert)
         if bit 7 == 1, then the label references are relative, else absolute
   1     special case ID (0 == not a special case, 1 == Z80/GB-Z80 RST, 2 == 8008 RST, 3 == 8080 RST, 4 == flip endianess)
   4     section (1+ = section id) (int)
@@ -267,6 +304,30 @@ pending calculations:
   1     position (0 = definition, 1 = elsewhere)
   1     bits starting position (0-7, only present if result type == 6)
   1     bits to define (1-32, only present if result type == 6)
+  4     relative address (int)
+  4     line number (int)
+  ...
+  1     type (0 = value, 1 = operator, 2 = label, 3 = deleted, 4 = stack, 5 = string)
+  1     sign (0 = positive, 1 = negative)
+  8     value (double) OR
+  n     string (0 terminated)
+  ...
+  ...
+
+assertions:
+
+  4     number of assertions (int)
+  ...
+  1     action (3 = linker warning, 4 = linker error)
+  n     message (0 terminated)
+        The following fields are the assertion expression as a simplified calculation stack record.
+        WLALINK evaluates it as a boolean and does not write its value to output.
+  4     stack id (int), used for stack lookup if this expression is referenced by another stack
+  1     stack/result type (11 = assert)
+  4     section (1+ = section id) (int)
+  4     file id (int)
+  1     number of stack items
+  1     position (0 = definition, 1 = elsewhere)
   4     relative address (int)
   4     line number (int)
   ...
@@ -329,10 +390,13 @@ bytes   description
   4     number of items
   ...
   1     command ('f' == file name, 'k' == new line)
-  4     data 0 (int)
-  4     data 1 (present only if command == 'k') (int)
-  4     data 2 (present only if command == 'k') (int)
-  4     data 3 (present only if command == 'k') (int)
+  4     file name id (if command == 'f') OR line number (if command == 'k') (int)
+  4     line length (present only if command == 'k') (int)
+  4     skip bytes (present only if command == 'k') (int)
+  4     running id (present only if command == 'k') (int)
+  4     real line number (present only if command == 'k') (int)
+  4     real file name id (present only if command == 'k') (int)
+  4     generated line (0 == no, 1 == yes) (present only if command == 'k') (int)
   ...
 
 
@@ -343,12 +407,15 @@ bytes   description
   4     number of items
   ...
   1     command ('f' == file name, 'k' == new line)
-  4     data 0 (int)
-  4     data 1 (present only if command == 'k') (int)
-  4     data 2 (present only if command == 'k') (int)
-  4     data 3 (present only if command == 'k') (int)
-  4     data 4 (present only if command == 'k') (int)
-  4     data 5 (present only if command == 'k') (int)
-  4     data 6 (present only if command == 'k') (int)
+  4     file name id (if command == 'f') OR line number (if command == 'k') (int)
+  4     line length (present only if command == 'k') (int)
+  4     offset (present only if command == 'k') (int)
+  4     base (present only if command == 'k') (int)
+  4     bank (present only if command == 'k') (int)
+  4     slot (present only if command == 'k') (int)
+  4     running id (present only if command == 'k') (int)
+  4     real line number (present only if command == 'k') (int)
+  4     real file name id (present only if command == 'k') (int)
+  4     generated line (0 == no, 1 == yes) (present only if command == 'k') (int)
   ...
 

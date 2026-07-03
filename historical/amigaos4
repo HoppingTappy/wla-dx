@@ -10,12 +10,6 @@ move wlab TO /binaries
 make -f makefile.amiga clean
 /
 
-cd wlad
-make -f makefile.amiga
-move wlad TO /binaries
-make -f makefile.amiga clean
-/
-
 echo **************************
 echo * compiling WLA binaries *
 echo **************************
@@ -37,6 +31,10 @@ make -f makefiles/makefile.amiga.z80n
 move wla-z80n TO binaries
 
 make -f makefiles/makefile.amiga.z80n clean
+make -f makefiles/makefile.amiga.ez80
+move wla-ez80 TO binaries
+
+make -f makefiles/makefile.amiga.ez80 clean
 make -f makefiles/makefile.amiga.6502
 move wla-6502 TO binaries
 
@@ -85,6 +83,14 @@ make -f makefiles/makefile.amiga.8080
 move wla-8080 TO binaries
 
 make -f makefiles/makefile.amiga.8080 clean
+make -f makefiles/makefile.amiga.cx4
+move wla-cx4 TO binaries
+
+make -f makefiles/makefile.amiga.cx4 clean
+make -f makefiles/makefile.amiga.sh2
+move wla-sh2 TO binaries
+
+make -f makefiles/makefile.amiga.sh2 clean
 
 echo *********************
 echo * compiling WLALINK *

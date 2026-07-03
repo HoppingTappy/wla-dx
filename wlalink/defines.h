@@ -32,6 +32,25 @@
 
 #define OUTPUT_TYPE_UNDEFINED 0
 #define OUTPUT_TYPE_CBM_PRG   1
+#define OUTPUT_TYPE_C64_CRT   2
+
+#define C64_CRT_TYPE_UNDEFINED    0
+#define C64_CRT_TYPE_NORMAL_4K    1
+#define C64_CRT_TYPE_NORMAL_8K    2
+#define C64_CRT_TYPE_NORMAL_16K   3
+#define C64_CRT_TYPE_ULTIMAX_4K   4
+#define C64_CRT_TYPE_ULTIMAX_8K   5
+#define C64_CRT_TYPE_ULTIMAX_16K  6
+#define C64_CRT_TYPE_OCEAN        7
+#define C64_CRT_TYPE_MAGIC_DESK   8
+#define C64_CRT_TYPE_EASYFLASH    9
+#define C64_CRT_TYPE_SIMONS_BASIC 10
+#define C64_CRT_TYPE_EPYX_FASTLOAD 11
+#define C64_CRT_TYPE_C64_GS       12
+#define C64_CRT_TYPE_COMAL80      13
+#define C64_CRT_TYPE_GMOD2        14
+#define C64_CRT_TYPE_RGCD         15
+#define C64_CRT_TYPE_GMOD3        16
 
 #define LOAD_ADDRESS_TYPE_UNDEFINED 0
 #define LOAD_ADDRESS_TYPE_VALUE     1
@@ -69,6 +88,46 @@
 #define SYMBOL_MODE_NOCA5H  1
 #define SYMBOL_MODE_WLA     2
 #define SYMBOL_MODE_EQU     3
+#define SYMBOL_MODE_MAME    4
+
+#define LISTFILE_OUTPUT_SOURCE 0
+#define LISTFILE_OUTPUT_OBJECT 1
+
+#define LISTFILE_MACRO_SOURCE_STACK_MAX 256
+
+struct listfile_output_name {
+  int mode;
+  char *sourcefilename;
+  char *outputfilename;
+  struct object_file *owner;
+};
+
+struct listfile_source_context {
+  char *sourcefilename;
+  char *source_file;
+  int file_size;
+  int current_linenumber;
+  int m;
+};
+
+struct listfile_macro_source_context {
+  char *sourcefilename;
+  char *real_sourcefilename;
+  char *visible_sourcefilename;
+  int active;
+  int emit_source_markers;
+  int indent;
+  int source_linenumber;
+  int last_real_linenumber;
+  char *repeat_sourcefilename;
+  char *repeat_real_sourcefilename;
+  int repeat_linenumber;
+  int repeat_real_linenumber;
+  int repeat_indent;
+  char *return_sourcefilenames[LISTFILE_MACRO_SOURCE_STACK_MAX];
+  int return_linenumbers[LISTFILE_MACRO_SOURCE_STACK_MAX];
+  int stack_size;
+};
 
 struct source_file_name {
   char *name;
@@ -95,6 +154,7 @@ struct object_file {
   int little_endian;
   int cpu_65816;
   int cpu_65ce02;
+  int cpu_sh2;
   int id;
   int fix_slot;
   int listfile_items;
@@ -279,6 +339,15 @@ struct stack {
   int special_id;
   int bits_position;
   int bits_to_define;
+  int is_assertion_body;
+  int assertion_address_adjusted;
+};
+
+struct assertion {
+  struct assertion *next;
+  struct stack *stack;
+  int action;
+  char message[MAX_NAME_LENGTH + 1];
 };
 
 struct stack_item {

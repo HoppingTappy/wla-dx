@@ -28,6 +28,7 @@ extern struct label **g_sorted_anonymous_labels;
 extern struct object_file *g_obj_first, *g_obj_last, *g_obj_tmp;
 extern struct section *g_sec_first, *g_sec_last, *g_sec_bankhd_first, g_sec_bankhd_last;
 extern struct stack *g_stacks_first, *g_stacks_last;
+extern struct assertion *g_assertions_first;
 extern struct map_t *g_global_unique_label_map;
 extern struct map_t *g_namespace_map;
 extern struct slot g_slots[256];
@@ -45,12 +46,771 @@ extern int g_file_header_size, g_file_footer_size, *g_bankaddress, *g_banksizes;
 extern int g_memory_file_id, g_memory_file_id_source, g_memory_line_number, g_output_mode;
 extern int g_program_start, g_program_end, g_snes_mode, g_smc_status;
 extern int g_snes_sramsize, g_num_sorted_anonymous_labels, g_sort_sections;
-extern int g_output_type, g_program_address_start, g_program_address_end, g_program_address_start_type, g_program_address_end_type;
+extern int g_output_type, g_c64_crt_type, g_program_address_start, g_program_address_end, g_program_address_start_type, g_program_address_end_type;
 extern int g_section_table_table_max, g_section_write_order[SECTION_TYPES_COUNT-2], g_ramsection_write_order[RAMSECTION_TYPES_COUNT];
 extern int g_use_priority_only_writing_sections, g_use_priority_only_writing_ramsections;
 extern int g_allow_duplicate_labels_and_definitions;
+extern int g_allow_value_mismatch_in_duplicate_labels;
+extern int g_romformat;
 
 static int s_current_stack_calculation_addr = 0;
+
+
+static void _write_u16be(FILE *f, int value) {
+
+  fprintf(f, "%c", (value >> 8) & 0xFF);
+  fprintf(f, "%c", value & 0xFF);
+}
+
+
+static void _write_u32be(FILE *f, int value) {
+
+  fprintf(f, "%c", (value >> 24) & 0xFF);
+  fprintf(f, "%c", (value >> 16) & 0xFF);
+  fprintf(f, "%c", (value >> 8) & 0xFF);
+  fprintf(f, "%c", value & 0xFF);
+}
+
+
+#define NGHEADER_OFFSET 0x100
+#define NGHEADER_PROMSIZE_OFFSET 0x10A
+#define NGHEADER_PROMSIZE_AUTOPOW2_MARKER 0xFF
+#define NGHEADER_MIB_SIZE 0x100000
+
+
+static int _neogeo_header_uses_autopow2(void) {
+
+  if (g_romsize < NGHEADER_PROMSIZE_OFFSET + 4)
+    return NO;
+
+  if (memcmp(g_rom + NGHEADER_OFFSET, "NEO-GEO", 7) != 0)
+    return NO;
+
+  if (g_rom[NGHEADER_PROMSIZE_OFFSET + 0] != NGHEADER_PROMSIZE_AUTOPOW2_MARKER ||
+      g_rom[NGHEADER_PROMSIZE_OFFSET + 1] != NGHEADER_PROMSIZE_AUTOPOW2_MARKER ||
+      g_rom[NGHEADER_PROMSIZE_OFFSET + 2] != NGHEADER_PROMSIZE_AUTOPOW2_MARKER ||
+      g_rom[NGHEADER_PROMSIZE_OFFSET + 3] != NGHEADER_PROMSIZE_AUTOPOW2_MARKER)
+    return NO;
+
+  return YES;
+}
+
+
+static int _neogeo_next_power_of_two_mib(int size, int *rounded_size) {
+
+  int rounded = NGHEADER_MIB_SIZE;
+
+  while (rounded < size) {
+    if (rounded > 0x40000000) {
+      print_text(NO, "WRITE_ROM_FILE: Neo Geo PROMSIZE AUTOPOW2 overflowed while rounding %d bytes.\n", size);
+      return FAILED;
+    }
+    rounded <<= 1;
+  }
+
+  *rounded_size = rounded;
+
+  return SUCCEEDED;
+}
+
+
+static int _neogeo_apply_promsize_autopow2(int *padded_size) {
+
+  int rounded_size;
+
+  *padded_size = g_romsize;
+
+  if (_neogeo_header_uses_autopow2() == NO)
+    return SUCCEEDED;
+
+  if (g_output_mode != OUTPUT_ROM) {
+    print_text(NO, "WRITE_ROM_FILE: Neo Geo PROMSIZE AUTOPOW2 requires ROM output mode.\n");
+    return FAILED;
+  }
+
+  if (_neogeo_next_power_of_two_mib(g_romsize, &rounded_size) == FAILED)
+    return FAILED;
+
+  g_rom[NGHEADER_PROMSIZE_OFFSET + 0] = (rounded_size >> 24) & 0xFF;
+  g_rom[NGHEADER_PROMSIZE_OFFSET + 1] = (rounded_size >> 16) & 0xFF;
+  g_rom[NGHEADER_PROMSIZE_OFFSET + 2] = (rounded_size >> 8) & 0xFF;
+  g_rom[NGHEADER_PROMSIZE_OFFSET + 3] = rounded_size & 0xFF;
+
+  *padded_size = rounded_size;
+
+  return SUCCEEDED;
+}
+
+
+static int _write_emptyfill_padding(FILE *f, int size) {
+
+  unsigned char buffer[4096];
+
+  if (size <= 0)
+    return SUCCEEDED;
+
+  memset(buffer, g_emptyfill, sizeof(buffer));
+
+  while (size > 0) {
+    int chunk_size = size > (int)sizeof(buffer) ? (int)sizeof(buffer) : size;
+
+    if ((int)fwrite(buffer, 1, chunk_size, f) != chunk_size)
+      return FAILED;
+
+    size -= chunk_size;
+  }
+
+  return SUCCEEDED;
+}
+
+
+static int _build_plain_rom_image(unsigned char **image, int *image_size, int padded_size) {
+
+  unsigned char *buffer;
+  int i, offset = 0;
+
+  if (g_sec_bankhd_first != NULL) {
+    print_text(NO, "WRITE_ROM_FILE: Mega Drive formatted output does not support BANKHEADER sections.\n");
+    return FAILED;
+  }
+
+  buffer = malloc(padded_size > 0 ? padded_size : 1);
+  if (buffer == NULL) {
+    print_text(NO, "WRITE_ROM_FILE: Out of memory while building Mega Drive ROM image.\n");
+    return FAILED;
+  }
+
+  for (i = 0; i < g_rombanks; i++) {
+    memcpy(buffer + offset, g_rom + g_bankaddress[i], g_banksizes[i]);
+    offset += g_banksizes[i];
+  }
+
+  while (offset < padded_size)
+    buffer[offset++] = (unsigned char)g_emptyfill;
+
+  *image = buffer;
+  *image_size = padded_size;
+
+  return SUCCEEDED;
+}
+
+
+#define MD_SMD_HEADER_SIZE 512
+#define MD_SMD_BLOCK_SIZE 0x4000
+#define MD_SMD_MAX_BLOCKS 255
+
+
+static int _write_megadrive_smd(FILE *f, unsigned char *image, int image_size) {
+
+  unsigned char header[MD_SMD_HEADER_SIZE], block_buffer[MD_SMD_BLOCK_SIZE];
+  int block, byte_index, base, blocks, output_index;
+
+  if ((image_size & (MD_SMD_BLOCK_SIZE - 1)) != 0) {
+    print_text(NO, "WRITE_ROM_FILE: SMD output requires ROM size to be a multiple of 16KB. Use .EMPTYFILL/padding to align it.\n");
+    return FAILED;
+  }
+
+  blocks = image_size / MD_SMD_BLOCK_SIZE;
+  if (blocks > MD_SMD_MAX_BLOCKS) {
+    print_text(NO, "WRITE_ROM_FILE: SMD output supports at most 255 16KB blocks (4080KB); use BIN/MD output for larger Mega Drive ROMs.\n");
+    return FAILED;
+  }
+
+  memset(header, 0, sizeof(header));
+  header[0] = (unsigned char)blocks;
+  /* Single-file SMD header: byte 0 is the 16KB block count, byte 2 marks a
+     complete single-file image, and AA BB 06 is the SMD ID sequence. */
+  header[2] = 0x40;
+  header[8] = 0xAA;
+  header[9] = 0xBB;
+  header[10] = 0x06;
+
+  if (fwrite(header, 1, sizeof(header), f) != sizeof(header))
+    return FAILED;
+
+  for (block = 0; block < blocks; block++) {
+    base = block * MD_SMD_BLOCK_SIZE;
+    output_index = 0;
+    for (byte_index = 0; byte_index < MD_SMD_BLOCK_SIZE; byte_index += 2)
+      block_buffer[output_index++] = image[base + byte_index];
+    for (byte_index = 1; byte_index < MD_SMD_BLOCK_SIZE; byte_index += 2)
+      block_buffer[output_index++] = image[base + byte_index];
+    if (fwrite(block_buffer, 1, MD_SMD_BLOCK_SIZE, f) != MD_SMD_BLOCK_SIZE)
+      return FAILED;
+  }
+
+  return SUCCEEDED;
+}
+
+
+static int _write_megadrive_md(FILE *f, unsigned char *image, int image_size) {
+
+  unsigned char buffer[4096];
+  int i, output_index, parity;
+
+  if ((image_size & 1) != 0) {
+    print_text(NO, "WRITE_ROM_FILE: MD output requires an even ROM size. Use .EMPTYFILL/padding to align it.\n");
+    return FAILED;
+  }
+
+  for (parity = 0; parity < 2; parity++) {
+    output_index = 0;
+    for (i = parity; i < image_size; i += 2) {
+      buffer[output_index++] = image[i];
+      if (output_index == (int)sizeof(buffer)) {
+        if (fwrite(buffer, 1, output_index, f) != (size_t)output_index)
+          return FAILED;
+        output_index = 0;
+      }
+    }
+    if (output_index > 0 && fwrite(buffer, 1, output_index, f) != (size_t)output_index)
+      return FAILED;
+  }
+
+  return SUCCEEDED;
+}
+
+
+static int _write_megadrive_formatted_rom(FILE *f, int padded_size) {
+
+  unsigned char *image = NULL;
+  int image_size = 0, result;
+
+  if (g_output_mode != OUTPUT_ROM) {
+    print_text(NO, "WRITE_ROM_FILE: Mega Drive formatted output requires ROM output mode. Remove -b.\n");
+    return FAILED;
+  }
+  if (g_output_type != OUTPUT_TYPE_UNDEFINED || g_file_header != NULL || g_file_footer != NULL || g_smc_status != 0) {
+    print_text(NO, "WRITE_ROM_FILE: Mega Drive formatted output cannot be combined with alternate output types, file headers/footers, or SMC headers.\n");
+    return FAILED;
+  }
+
+  if (_build_plain_rom_image(&image, &image_size, padded_size) == FAILED)
+    return FAILED;
+
+  if (g_romformat == ROMFORMAT_BIN)
+    result = fwrite(image, 1, image_size, f) == (size_t)image_size ? SUCCEEDED : FAILED;
+  else if (g_romformat == ROMFORMAT_SMD)
+    result = _write_megadrive_smd(f, image, image_size);
+  else if (g_romformat == ROMFORMAT_MD)
+    result = _write_megadrive_md(f, image, image_size);
+  else {
+    print_text(NO, "WRITE_ROM_FILE: Unknown Mega Drive output format value %d.\n", g_romformat);
+    result = FAILED;
+  }
+
+  free(image);
+
+  return result;
+}
+
+
+static char *_get_c64_crt_type_name(int type) {
+
+  if (type == C64_CRT_TYPE_NORMAL_4K)
+    return "NORMAL4K";
+  else if (type == C64_CRT_TYPE_NORMAL_8K)
+    return "NORMAL8K";
+  else if (type == C64_CRT_TYPE_NORMAL_16K)
+    return "NORMAL16K";
+  else if (type == C64_CRT_TYPE_ULTIMAX_4K)
+    return "ULTIMAX4K";
+  else if (type == C64_CRT_TYPE_ULTIMAX_8K)
+    return "ULTIMAX8K";
+  else if (type == C64_CRT_TYPE_ULTIMAX_16K)
+    return "ULTIMAX16K";
+  else if (type == C64_CRT_TYPE_OCEAN)
+    return "OCEAN";
+  else if (type == C64_CRT_TYPE_MAGIC_DESK)
+    return "MAGICDESK";
+  else if (type == C64_CRT_TYPE_EASYFLASH)
+    return "EASYFLASH";
+  else if (type == C64_CRT_TYPE_SIMONS_BASIC)
+    return "SIMONSBASIC";
+  else if (type == C64_CRT_TYPE_EPYX_FASTLOAD)
+    return "EPYXFASTLOAD";
+  else if (type == C64_CRT_TYPE_C64_GS)
+    return "C64GS";
+  else if (type == C64_CRT_TYPE_COMAL80)
+    return "COMAL80";
+  else if (type == C64_CRT_TYPE_GMOD2)
+    return "GMOD2";
+  else if (type == C64_CRT_TYPE_RGCD)
+    return "RGCD";
+  else if (type == C64_CRT_TYPE_GMOD3)
+    return "GMOD3";
+
+  return "UNKNOWN";
+}
+
+
+static int _all_rom_banks_are_size(int bank_size) {
+
+  int i;
+
+  for (i = 0; i < g_rombanks; i++) {
+    if (g_banksizes[i] != bank_size)
+      return NO;
+  }
+
+  return YES;
+}
+
+
+static int _all_rom_banks_are_size_or_pairs(int small_bank_size, int large_bank_size) {
+
+  if (g_rombanks >= 1 && _all_rom_banks_are_size(large_bank_size) == YES)
+    return YES;
+  if (g_rombanks >= 2 && (g_rombanks & 1) == 0 && _all_rom_banks_are_size(small_bank_size) == YES)
+    return YES;
+
+  return NO;
+}
+
+
+static int _write_c64_crt_header_ex(FILE *f, int hardware_type, int exrom, int game, int subtype, char *name) {
+
+  unsigned char cart_name[32];
+  int i, version;
+
+  memset(cart_name, 0, sizeof(cart_name));
+  if (name != NULL) {
+    for (i = 0; i < (int)sizeof(cart_name) - 1 && name[i] != 0; i++)
+      cart_name[i] = (unsigned char)name[i];
+  }
+
+  /* Version 0x0101 is required to use the cartridge subtype/hardware revision byte at offset 0x1A. */
+  version = (subtype != 0) ? 0x0101 : 0x0100;
+
+  fwrite("C64 CARTRIDGE   ", 1, 16, f);
+  _write_u32be(f, 0x40);
+  _write_u16be(f, version);
+  _write_u16be(f, hardware_type);
+  fprintf(f, "%c", exrom & 0xFF);
+  fprintf(f, "%c", game & 0xFF);
+
+  /* $001A = subtype/hardware revision, $001B-$001F reserved. */
+  fprintf(f, "%c", subtype & 0xFF);
+  for (i = 0; i < 5; i++)
+    fprintf(f, "%c", 0);
+
+  fwrite(cart_name, 1, sizeof(cart_name), f);
+
+  return SUCCEEDED;
+}
+
+
+static int _write_c64_crt_header(FILE *f, int hardware_type, int exrom, int game, char *name) {
+
+  return _write_c64_crt_header_ex(f, hardware_type, exrom, game, 0, name);
+}
+
+
+static int _write_c64_crt_chip(FILE *f, int chip_type, int bank, int load_address, int size, unsigned char *data) {
+
+  if (data == NULL)
+    return FAILED;
+
+  fwrite("CHIP", 1, 4, f);
+  _write_u32be(f, 0x10 + size);
+  _write_u16be(f, chip_type);
+  _write_u16be(f, bank);
+  _write_u16be(f, load_address);
+  _write_u16be(f, size);
+  fwrite(data, 1, size, f);
+
+  return SUCCEEDED;
+}
+
+
+static void _get_c64_crt_output_name(char *outname, char *name, int size) {
+
+  char *base, *dot;
+  int length;
+
+  base = strrchr(outname, '/');
+  if (base == NULL)
+    base = strrchr(outname, '\\');
+  if (base == NULL)
+    base = outname;
+  else
+    base++;
+
+  dot = strrchr(base, '.');
+  if (dot == NULL)
+    length = (int)strlen(base);
+  else
+    length = (int)(dot - base);
+
+  if (length >= size)
+    length = size - 1;
+
+  memcpy(name, base, length);
+  name[length] = 0;
+}
+
+
+static int _validate_c64_crt_write(void) {
+
+  if (g_c64_crt_type == C64_CRT_TYPE_UNDEFINED) {
+    print_text(NO, "WRITE_ROM_FILE: C64CRT output requires -64 <TYPE>.\n");
+    return FAILED;
+  }
+  if (g_output_mode != OUTPUT_ROM) {
+    print_text(NO, "WRITE_ROM_FILE: C64CRT output requires ROM mode. Remove -b.\n");
+    return FAILED;
+  }
+  if (g_load_address_type != LOAD_ADDRESS_TYPE_UNDEFINED) {
+    print_text(NO, "WRITE_ROM_FILE: C64CRT output does not support -a load addresses.\n");
+    return FAILED;
+  }
+  if (g_program_address_start >= 0 || g_program_address_end >= 0 || g_program_address_start_type != LOAD_ADDRESS_TYPE_UNDEFINED || g_program_address_end_type != LOAD_ADDRESS_TYPE_UNDEFINED) {
+    print_text(NO, "WRITE_ROM_FILE: C64CRT output does not support -bS/-bE program ranges.\n");
+    return FAILED;
+  }
+  if (g_file_header != NULL || g_file_footer != NULL) {
+    print_text(NO, "WRITE_ROM_FILE: C64CRT output does not support [header]/[footer] data in the link file.\n");
+    return FAILED;
+  }
+  if (g_smc_status != 0) {
+    print_text(NO, "WRITE_ROM_FILE: C64CRT output does not support SMC headers.\n");
+    return FAILED;
+  }
+  if (g_sec_bankhd_first != NULL) {
+    print_text(NO, "WRITE_ROM_FILE: C64CRT output does not support BANKHEADER sections.\n");
+    return FAILED;
+  }
+
+  if (g_c64_crt_type == C64_CRT_TYPE_NORMAL_4K) {
+    if (g_rombanks != 1 || g_banksizes[0] != 0x1000) {
+      print_text(NO, "WRITE_ROM_FILE: %s requires exactly one 4KB ROM bank.\n", _get_c64_crt_type_name(g_c64_crt_type));
+      return FAILED;
+    }
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_ULTIMAX_4K) {
+    /* Ultimax 4K accepts either one 4KB bank (ROML; ROMH is synthesized with
+       reset vectors pointing to ROML) or two 4KB banks (bank 0 = ROML,
+       bank 1 = ROMH) for authors who want to provide ROMH content explicitly. */
+    if (!((g_rombanks == 1 && g_banksizes[0] == 0x1000) ||
+          (g_rombanks == 2 && g_banksizes[0] == 0x1000 && g_banksizes[1] == 0x1000))) {
+      print_text(NO, "WRITE_ROM_FILE: ULTIMAX4K requires one or two 4KB ROM banks.\n");
+      return FAILED;
+    }
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_NORMAL_8K || g_c64_crt_type == C64_CRT_TYPE_EPYX_FASTLOAD) {
+    if (g_rombanks != 1 || g_banksizes[0] != 0x2000) {
+      print_text(NO, "WRITE_ROM_FILE: %s requires exactly one 8KB ROM bank.\n", _get_c64_crt_type_name(g_c64_crt_type));
+      return FAILED;
+    }
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_ULTIMAX_8K) {
+    /* Ultimax 8K accepts either one 8KB bank (ROML; ROMH is synthesized with
+       reset vectors pointing to ROML) or two 8KB banks (bank 0 = ROML,
+       bank 1 = ROMH) for authors who want to provide ROMH content explicitly. */
+    if (!((g_rombanks == 1 && g_banksizes[0] == 0x2000) ||
+          (g_rombanks == 2 && g_banksizes[0] == 0x2000 && g_banksizes[1] == 0x2000))) {
+      print_text(NO, "WRITE_ROM_FILE: ULTIMAX8K requires one or two 8KB ROM banks.\n");
+      return FAILED;
+    }
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_SIMONS_BASIC) {
+    /* Simons' BASIC is 16KB and VICE requires two 8KB CHIP blocks at $8000 and $A000. */
+    if (g_rombanks == 1 && g_banksizes[0] == 0x4000)
+      return SUCCEEDED;
+    if (g_rombanks != 2 || _all_rom_banks_are_size(0x2000) == NO) {
+      print_text(NO, "WRITE_ROM_FILE: SIMONSBASIC requires one 16KB ROM bank or two 8KB ROM banks.\n");
+      return FAILED;
+    }
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_NORMAL_16K || g_c64_crt_type == C64_CRT_TYPE_ULTIMAX_16K) {
+    if (g_rombanks == 1 && g_banksizes[0] == 0x4000)
+      return SUCCEEDED;
+    if (g_rombanks != 2 || _all_rom_banks_are_size(0x2000) == NO) {
+      print_text(NO, "WRITE_ROM_FILE: %s requires one 16KB ROM bank or two 8KB ROM banks.\n", _get_c64_crt_type_name(g_c64_crt_type));
+      return FAILED;
+    }
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_OCEAN || g_c64_crt_type == C64_CRT_TYPE_MAGIC_DESK || g_c64_crt_type == C64_CRT_TYPE_GMOD2) {
+    if (g_rombanks < 1 || _all_rom_banks_are_size(0x2000) == NO) {
+      print_text(NO, "WRITE_ROM_FILE: %s requires one or more 8KB ROM banks.\n", _get_c64_crt_type_name(g_c64_crt_type));
+      return FAILED;
+    }
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_RGCD) {
+    /* VICE requires exactly 8 banks (64KB) for RGCD subtype 0. */
+    if (g_rombanks != 8 || _all_rom_banks_are_size(0x2000) == NO) {
+      print_text(NO, "WRITE_ROM_FILE: RGCD requires exactly eight 8KB ROM banks (64KB total).\n");
+      return FAILED;
+    }
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_GMOD3) {
+    /* VICE requires the total flash image to be 2MB, 4MB, 8MB or 16MB
+       (256, 512, 1024 or 2048 banks of 8KB). */
+    if (_all_rom_banks_are_size(0x2000) == NO ||
+        (g_rombanks != 256 && g_rombanks != 512 && g_rombanks != 1024 && g_rombanks != 2048)) {
+      print_text(NO, "WRITE_ROM_FILE: GMOD3 requires 256, 512, 1024 or 2048 banks of 8KB (2MB/4MB/8MB/16MB).\n");
+      return FAILED;
+    }
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_EASYFLASH) {
+    if (g_rombanks < 2 || (g_rombanks & 1) != 0 || _all_rom_banks_are_size(0x2000) == NO) {
+      print_text(NO, "WRITE_ROM_FILE: EASYFLASH requires an even number of 8KB ROM banks.\n");
+      return FAILED;
+    }
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_C64_GS) {
+    /* VICE C64GS is 64 banks of 8KB at $8000 (512KB total). */
+    if (g_rombanks != 64 || _all_rom_banks_are_size(0x2000) == NO) {
+      print_text(NO, "WRITE_ROM_FILE: C64GS requires exactly 64 banks of 8KB (512KB total).\n");
+      return FAILED;
+    }
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_COMAL80) {
+    /* VICE Comal-80 is 4 banks of 16KB at $8000. Accept four 16KB banks or eight 8KB banks. */
+    if (_all_rom_banks_are_size_or_pairs(0x2000, 0x4000) == NO) {
+      print_text(NO, "WRITE_ROM_FILE: COMAL80 requires four 16KB ROM banks or eight 8KB ROM banks.\n");
+      return FAILED;
+    }
+    if (!((g_rombanks == 4 && _all_rom_banks_are_size(0x4000) == YES) ||
+          (g_rombanks == 8 && _all_rom_banks_are_size(0x2000) == YES))) {
+      print_text(NO, "WRITE_ROM_FILE: COMAL80 requires four 16KB ROM banks or eight 8KB ROM banks (64KB total).\n");
+      return FAILED;
+    }
+  }
+
+  return SUCCEEDED;
+}
+
+
+static int _write_c64_crt_file(FILE *f, char *outname) {
+
+  char cart_name[33];
+  int i;
+
+  if (_validate_c64_crt_write() == FAILED)
+    return FAILED;
+
+  _get_c64_crt_output_name(outname, cart_name, sizeof(cart_name));
+
+  if (g_c64_crt_type == C64_CRT_TYPE_NORMAL_4K) {
+    if (_write_c64_crt_header(f, 0, 0, 1, cart_name) == FAILED)
+      return FAILED;
+    return _write_c64_crt_chip(f, 0, 0, 0x8000, 0x1000, g_rom + g_bankaddress[0]);
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_NORMAL_8K) {
+    if (_write_c64_crt_header(f, 0, 0, 1, cart_name) == FAILED)
+      return FAILED;
+    return _write_c64_crt_chip(f, 0, 0, 0x8000, 0x2000, g_rom + g_bankaddress[0]);
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_NORMAL_16K) {
+    unsigned char *data;
+    unsigned char buffer[0x4000];
+
+    if (_write_c64_crt_header(f, 0, 0, 0, cart_name) == FAILED)
+      return FAILED;
+
+    /* VICE's generic_crt_attach requires a single 16KB CHIP at $8000. */
+    if (g_rombanks == 1) {
+      data = g_rom + g_bankaddress[0];
+    }
+    else {
+      memcpy(buffer, g_rom + g_bankaddress[0], 0x2000);
+      memcpy(buffer + 0x2000, g_rom + g_bankaddress[1], 0x2000);
+      data = buffer;
+    }
+
+    return _write_c64_crt_chip(f, 0, 0, 0x8000, 0x4000, data);
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_ULTIMAX_4K) {
+    unsigned char romh[0x1000];
+    unsigned char *roml = g_rom + g_bankaddress[0];
+
+    if (_write_c64_crt_header(f, 0, 1, 0, cart_name) == FAILED)
+      return FAILED;
+    if (_write_c64_crt_chip(f, 0, 0, 0x8000, 0x1000, roml) == FAILED)
+      return FAILED;
+
+    if (g_rombanks == 2) {
+      /* Caller supplied an explicit ROMH bank; emit it verbatim. */
+      memcpy(romh, g_rom + g_bankaddress[1], 0x1000);
+    }
+    else {
+      /* Only ROML was provided; synthesize a minimal ROMH containing just the
+         NMI / RESET / IRQ vectors (pointing at the CBM80 cold-start address
+         stored at ROML[0..1]). The rest is left as 0x00 so the cart boots on
+         real hardware without mirroring ROML content into ROMH. */
+      memset(romh, 0, sizeof(romh));
+      romh[0x0FFA] = roml[0]; romh[0x0FFB] = roml[1];
+      romh[0x0FFC] = roml[0]; romh[0x0FFD] = roml[1];
+      romh[0x0FFE] = roml[0]; romh[0x0FFF] = roml[1];
+    }
+    return _write_c64_crt_chip(f, 0, 0, 0xF000, 0x1000, romh);
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_ULTIMAX_8K) {
+    unsigned char romh[0x2000];
+    unsigned char *roml = g_rom + g_bankaddress[0];
+
+    if (_write_c64_crt_header(f, 0, 1, 0, cart_name) == FAILED)
+      return FAILED;
+    if (_write_c64_crt_chip(f, 0, 0, 0x8000, 0x2000, roml) == FAILED)
+      return FAILED;
+
+    if (g_rombanks == 2) {
+      /* Caller supplied an explicit ROMH bank; emit it verbatim. */
+      memcpy(romh, g_rom + g_bankaddress[1], 0x2000);
+    }
+    else {
+      /* Only ROML was provided; synthesize a minimal ROMH with vectors. */
+      memset(romh, 0, sizeof(romh));
+      romh[0x1FFA] = roml[0]; romh[0x1FFB] = roml[1];
+      romh[0x1FFC] = roml[0]; romh[0x1FFD] = roml[1];
+      romh[0x1FFE] = roml[0]; romh[0x1FFF] = roml[1];
+    }
+    return _write_c64_crt_chip(f, 0, 0, 0xE000, 0x2000, romh);
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_ULTIMAX_16K) {
+    unsigned char *low, *high;
+
+    if (_write_c64_crt_header(f, 0, 1, 0, cart_name) == FAILED)
+      return FAILED;
+
+    low = g_rom + g_bankaddress[0];
+    high = (g_rombanks == 1) ? low + 0x2000 : g_rom + g_bankaddress[1];
+
+    if (_write_c64_crt_chip(f, 0, 0, 0x8000, 0x2000, low) == FAILED)
+      return FAILED;
+    return _write_c64_crt_chip(f, 0, 0, 0xE000, 0x2000, high);
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_OCEAN) {
+    if (_write_c64_crt_header(f, 5, 0, 0, cart_name) == FAILED)
+      return FAILED;
+
+    for (i = 0; i < g_rombanks; i++) {
+      if (_write_c64_crt_chip(f, 0, i, 0x8000, 0x2000, g_rom + g_bankaddress[i]) == FAILED)
+        return FAILED;
+    }
+
+    return SUCCEEDED;
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_MAGIC_DESK) {
+    if (_write_c64_crt_header(f, 19, 0, 1, cart_name) == FAILED)
+      return FAILED;
+
+    for (i = 0; i < g_rombanks; i++) {
+      if (_write_c64_crt_chip(f, 0, i, 0x8000, 0x2000, g_rom + g_bankaddress[i]) == FAILED)
+        return FAILED;
+    }
+
+    return SUCCEEDED;
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_EASYFLASH) {
+    if (_write_c64_crt_header(f, 32, 1, 0, cart_name) == FAILED)
+      return FAILED;
+
+    for (i = 0; i < g_rombanks; i += 2) {
+      if (_write_c64_crt_chip(f, 2, i >> 1, 0x8000, 0x2000, g_rom + g_bankaddress[i]) == FAILED)
+        return FAILED;
+      if (_write_c64_crt_chip(f, 2, i >> 1, 0xA000, 0x2000, g_rom + g_bankaddress[i + 1]) == FAILED)
+        return FAILED;
+    }
+
+    return SUCCEEDED;
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_SIMONS_BASIC) {
+    unsigned char *low, *high;
+
+    if (_write_c64_crt_header(f, 4, 0, 1, cart_name) == FAILED)
+      return FAILED;
+
+    low = g_rom + g_bankaddress[0];
+    high = (g_rombanks == 1) ? low + 0x2000 : g_rom + g_bankaddress[1];
+
+    /* VICE expects two 8KB CHIP blocks: $8000 and $A000. */
+    if (_write_c64_crt_chip(f, 0, 0, 0x8000, 0x2000, low) == FAILED)
+      return FAILED;
+    return _write_c64_crt_chip(f, 0, 0, 0xA000, 0x2000, high);
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_EPYX_FASTLOAD) {
+    if (_write_c64_crt_header(f, 10, 0, 1, cart_name) == FAILED)
+      return FAILED;
+    return _write_c64_crt_chip(f, 0, 0, 0x8000, 0x2000, g_rom + g_bankaddress[0]);
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_C64_GS) {
+    /* 64 banks of 8KB at $8000. */
+    if (_write_c64_crt_header(f, 15, 0, 1, cart_name) == FAILED)
+      return FAILED;
+
+    for (i = 0; i < g_rombanks; i++) {
+      if (_write_c64_crt_chip(f, 0, i, 0x8000, 0x2000, g_rom + g_bankaddress[i]) == FAILED)
+        return FAILED;
+    }
+
+    return SUCCEEDED;
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_COMAL80) {
+    /* VICE Comal-80 expects a single 16KB CHIP at $8000 per bank (4 banks). */
+    unsigned char buffer[0x4000];
+    int banks, b;
+
+    if (_write_c64_crt_header(f, 21, 0, 0, cart_name) == FAILED)
+      return FAILED;
+
+    if (g_rombanks == 4 && _all_rom_banks_are_size(0x4000) == YES) {
+      for (b = 0; b < 4; b++) {
+        if (_write_c64_crt_chip(f, 0, b, 0x8000, 0x4000, g_rom + g_bankaddress[b]) == FAILED)
+          return FAILED;
+      }
+    }
+    else {
+      banks = g_rombanks >> 1;
+      for (b = 0; b < banks; b++) {
+        memcpy(buffer, g_rom + g_bankaddress[b * 2], 0x2000);
+        memcpy(buffer + 0x2000, g_rom + g_bankaddress[b * 2 + 1], 0x2000);
+        if (_write_c64_crt_chip(f, 0, b, 0x8000, 0x4000, buffer) == FAILED)
+          return FAILED;
+      }
+    }
+
+    return SUCCEEDED;
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_GMOD2) {
+    if (_write_c64_crt_header(f, 60, 0, 1, cart_name) == FAILED)
+      return FAILED;
+
+    for (i = 0; i < g_rombanks; i++) {
+      if (_write_c64_crt_chip(f, (i == 0) ? 2 : 0, i, 0x8000, 0x2000, g_rom + g_bankaddress[i]) == FAILED)
+        return FAILED;
+    }
+
+    return SUCCEEDED;
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_RGCD) {
+    if (_write_c64_crt_header(f, 57, 0, 1, cart_name) == FAILED)
+      return FAILED;
+
+    for (i = 0; i < g_rombanks; i++) {
+      if (_write_c64_crt_chip(f, 0, i, 0x8000, 0x2000, g_rom + g_bankaddress[i]) == FAILED)
+        return FAILED;
+    }
+
+    return SUCCEEDED;
+  }
+  else if (g_c64_crt_type == C64_CRT_TYPE_GMOD3) {
+    if (_write_c64_crt_header(f, 62, 0, 1, cart_name) == FAILED)
+      return FAILED;
+
+    for (i = 0; i < g_rombanks; i++) {
+      if (_write_c64_crt_chip(f, 2, i, 0x8000, 0x2000, g_rom + g_bankaddress[i]) == FAILED)
+        return FAILED;
+    }
+
+    return SUCCEEDED;
+  }
+
+  print_text(NO, "WRITE_ROM_FILE: Unsupported C64CRT type %d.\n", g_c64_crt_type);
+
+  return FAILED;
+}
 
 
 static int _sections_sort(const void *a, const void *b) {
@@ -86,7 +846,7 @@ int strcaselesscmp(char *s1, const char *s2) {
 }
 
 
-int _cbm_write_prg_header(FILE *f) {
+static int _cbm_write_prg_header(FILE *f) {
 
   int address = 0;
   
@@ -166,7 +926,7 @@ int _cbm_write_prg_header(FILE *f) {
 }
 
 
-int _smc_create_and_write(FILE *f) {
+static int _smc_create_and_write(FILE *f) {
 
   int i;
 
@@ -1533,48 +2293,58 @@ int transform_stack_definitions(void) {
 }
 
 
-static int _try_put_label(map_t map, struct label *l) {
+static int _try_put_label(map_t map, struct label *l, int duplicate_check) {
 
   struct label *label;
   int err;
 
-  if (hashmap_get(map, l->name, (void*)&label) == MAP_OK) {
-    if (g_allow_duplicate_labels_and_definitions == NO) {
-      if (l->status == LABEL_STATUS_DEFINE)
-        print_text(NO, "%s: _TRY_PUT_LABEL: Definition \"%s\" was defined more than once.\n", get_file_name(l->file_id), l->name);
-      else
-        print_text(NO, "%s: %s:%d: _TRY_PUT_LABEL: Label \"%s\" was defined more than once.\n", get_file_name(l->file_id),
-                   get_source_file_name(l->file_id, l->file_id_source), l->linenumber, l->name);
-      return FAILED;
-    }
-    else {
-      if (l->alive == YES && label->alive == YES) {
-        /* check if the values are different */
-        if (l->status == LABEL_STATUS_DEFINE) {
-          if ((int)l->address != (int)label->address) {
-            print_text(NO, "%s: %s:%d: _TRY_PUT_LABEL: Definition \"%s\" ($%.8x) was defined more than once. Another \"%s\" with a different value ($%.8x) was found at %s: %s:%d.\n", get_file_name(l->file_id), get_source_file_name(l->file_id, l->file_id_source), l->linenumber, l->name, (int)l->address, label->name, (int)label->address, get_file_name(label->file_id), get_source_file_name(label->file_id, label->file_id_source), label->linenumber);
-            return FAILED;
+  if (duplicate_check == YES) {
+    /* do only duplicate check */
+    if (hashmap_get(map, l->name, (void*)&label) == MAP_OK) {
+      if (g_allow_duplicate_labels_and_definitions == YES && g_allow_value_mismatch_in_duplicate_labels == NO) {
+        if (l->alive == YES && label->alive == YES) {
+          /* check if the values are different */
+          if (l->status == LABEL_STATUS_DEFINE) {
+            if ((int)l->address != (int)label->address) {
+              print_text(NO, "%s: %s:%d: _TRY_PUT_LABEL: Definition \"%s\" ($%.8x) was defined more than once. Another \"%s\" with a different value ($%.8x) was found at %s: %s:%d.\n", get_file_name(l->file_id), get_source_file_name(l->file_id, l->file_id_source), l->linenumber, l->name, (int)l->address, label->name, (int)label->address, get_file_name(label->file_id), get_source_file_name(label->file_id, label->file_id_source), label->linenumber);
+              return FAILED;
+            }
           }
-        }
-        else {
-          /* label */
-          if ((int)l->address != (int)label->address) {
-            print_text(NO, "%s: %s:%d: _TRY_PUT_LABEL: Label \"%s\" ($%.8x) was defined more than once. Another \"%s\" with a different value ($%.8x) was found at %s: %s:%d.\n", get_file_name(l->file_id), get_source_file_name(l->file_id, l->file_id_source), l->linenumber, l->name, (int)l->address, label->name, (int)label->address, get_file_name(label->file_id), get_source_file_name(label->file_id, label->file_id_source), label->linenumber);
-            return FAILED;
+          else {
+            if ((int)l->address != (int)label->address) {
+              print_text(NO, "%s: %s:%d: _TRY_PUT_LABEL: Label \"%s\" ($%.8x) was defined more than once. Another \"%s\" with a different value ($%.8x) was found at %s: %s:%d.\n", get_file_name(l->file_id), get_source_file_name(l->file_id, l->file_id_source), l->linenumber, l->name, (int)l->address, label->name, (int)label->address, get_file_name(label->file_id), get_source_file_name(label->file_id, label->file_id_source), label->linenumber);
+              return FAILED;
+            }
           }
         }
       }
+      
+      /* don't insert duplicates into the hashmap */
+      return SUCCEEDED;
     }
-
-    /* don't insert duplicates into the hashmap */
-    return SUCCEEDED;
+  }
+  else {
+    /* really try to insert the label into a hashmap */
+    if (hashmap_get(map, l->name, (void*)&label) == MAP_OK) {
+      if (g_allow_duplicate_labels_and_definitions == NO) {
+        if (l->status == LABEL_STATUS_DEFINE)
+          print_text(NO, "%s: _TRY_PUT_LABEL: Definition \"%s\" was defined more than once.\n", get_file_name(l->file_id), l->name);
+        else
+          print_text(NO, "%s: %s:%d: _TRY_PUT_LABEL: Label \"%s\" was defined more than once.\n", get_file_name(l->file_id),
+                     get_source_file_name(l->file_id, l->file_id_source), l->linenumber, l->name);
+        return FAILED;
+      }
+      
+      /* don't insert duplicates into the hashmap */
+      return SUCCEEDED;
+    }
+  
+    if ((err = hashmap_put(map, l->name, l)) != MAP_OK) {
+      print_text(NO, "_TRY_PUT_LABEL: Hashmap error %d. Please send a bug report!\n", err);
+      return FAILED;
+    }
   }
   
-  if ((err = hashmap_put(map, l->name, l)) != MAP_OK) {
-    print_text(NO, "_TRY_PUT_LABEL: Hashmap error %d. Please send a bug report!\n", err);
-    return FAILED;
-  }
-
   return SUCCEEDED;
 }
 
@@ -1717,6 +2487,25 @@ int fix_all_sections(void) {
 }
 
 
+/* checks if there are duplicate labels */
+int check_duplicate_labels(void) {
+
+  struct label *l;
+
+  l = g_labels_first;
+  while (l != NULL) {
+    if (l->alive == YES) {
+      if (insert_label_into_maps(l, 0, YES) == FAILED)
+        return FAILED;
+    }
+    
+    l = l->next;
+  }
+
+  return SUCCEEDED;
+}
+
+
 /* determines the section for each label, and calls "insert_label_into_maps" for each. */
 int fix_label_sections(void) {
 
@@ -1738,7 +2527,7 @@ int fix_label_sections(void) {
         l->section_struct = s;
       }
 
-      if (insert_label_into_maps(l, 0) == FAILED)
+      if (insert_label_into_maps(l, 0, NO) == FAILED)
         return FAILED;
     }
     
@@ -1750,7 +2539,7 @@ int fix_label_sections(void) {
 
 
 /* determines which hashmaps are relevant for the label, and adds it to them. */
-int insert_label_into_maps(struct label* l, int is_sizeof) {
+int insert_label_into_maps(struct label* l, int is_sizeof, int duplicate_check) {
 
   int put_in_global = 1;
   int put_in_anything = 1;
@@ -1775,7 +2564,7 @@ int insert_label_into_maps(struct label* l, int is_sizeof) {
 
     if (put_in_anything) {
       /* put label into section's label map */
-      if (_try_put_label(s->label_map, l) == FAILED)
+      if (_try_put_label(s->label_map, l, duplicate_check) == FAILED)
         return FAILED;
 
       if (base_name[0] == '_')
@@ -1783,7 +2572,7 @@ int insert_label_into_maps(struct label* l, int is_sizeof) {
 
       /* put label into section's namespace's label map, if it's not a local label */
       if (s->nspace != NULL && base_name[0] != '_') {
-        if (_try_put_label(s->nspace->label_map, l) == FAILED)
+        if (_try_put_label(s->nspace->label_map, l, duplicate_check) == FAILED)
           return FAILED;
         put_in_global = 0;
       }
@@ -1792,7 +2581,7 @@ int insert_label_into_maps(struct label* l, int is_sizeof) {
 
   /* put the label into the global namespace */
   if (put_in_anything && put_in_global) {
-    if (_try_put_label(g_global_unique_label_map, l) == FAILED)
+    if (_try_put_label(g_global_unique_label_map, l, duplicate_check) == FAILED)
       return FAILED;
   }
 
@@ -2121,8 +2910,22 @@ int fix_references(void) {
         lt.section_status = OFF;
         l = &lt;
       }
-      else
+      else {
         find_label(r->name, s, &l);
+
+        if (l == NULL) {
+          /* didn't find the label, but if it has a namespace, try removing it and try again */
+          i = 0;
+          while (1) {
+            if (r->name[i] == '.' || r->name[i] == 0)
+              break;
+            i++;
+          }
+
+          if (r->name[i] == '.')
+            find_label(&r->name[i + 1], s, &l);
+        }
+      }
 
       if (l == NULL || l->status == LABEL_STATUS_SYMBOL || l->status == LABEL_STATUS_BREAKPOINT) {
         print_text(NO, "%s: %s:%d: FIX_REFERENCES: Reference to an unknown label \"%s\".\n",
@@ -2182,6 +2985,77 @@ int fix_references(void) {
           return FAILED;
         }
         mem_insert_ref(x, (i >> 1) & 0xFF);
+      }
+      /* SH-2 relative 8-bit branch displacement, encoded in words from PC+4 */
+      else if (r->type == REFERENCE_TYPE_SH2_RELATIVE_8BIT) {
+        int target, instruction_address;
+
+        target = (int)l->address;
+        instruction_address = r->address - 1;
+        i = target - (instruction_address + 4);
+        if ((i & 1) != 0) {
+          print_text(NO, "%s: %s:%d: FIX_REFERENCES: SH-2 branch target ($%x) must be word aligned.\n",
+                  get_file_name(r->file_id), get_source_file_name(r->file_id, r->file_id_source), r->linenumber, target);
+          return FAILED;
+        }
+        i /= 2;
+        if (i < -128 || i > 127) {
+          print_text(NO, "%s: %s:%d: FIX_REFERENCES: Too large distance (%d words from $%x to $%x \"%s\") for an SH-2 8-bit branch displacement.\n",
+                  get_file_name(r->file_id), get_source_file_name(r->file_id, r->file_id_source), r->linenumber, i, instruction_address, target, l->name);
+          return FAILED;
+        }
+        mem_insert_ref(x, i & 0xFF);
+      }
+      /* SH-2 relative 12-bit branch displacement, encoded in words from PC+4 */
+      else if (r->type == REFERENCE_TYPE_SH2_RELATIVE_12BIT) {
+        int target, instruction_address;
+
+        target = (int)l->address;
+        instruction_address = r->address;
+        i = target - (instruction_address + 4);
+        if ((i & 1) != 0) {
+          print_text(NO, "%s: %s:%d: FIX_REFERENCES: SH-2 branch target ($%x) must be word aligned.\n",
+                  get_file_name(r->file_id), get_source_file_name(r->file_id, r->file_id_source), r->linenumber, target);
+          return FAILED;
+        }
+        i /= 2;
+        if (i < -2048 || i > 2047) {
+          print_text(NO, "%s: %s:%d: FIX_REFERENCES: Too large distance (%d words from $%x to $%x \"%s\") for an SH-2 12-bit branch displacement.\n",
+                  get_file_name(r->file_id), get_source_file_name(r->file_id, r->file_id_source), r->linenumber, i, instruction_address, target, l->name);
+          return FAILED;
+        }
+        mem_insert_ref(x, ((r->special_id & 0x0F) << 4) | ((i >> 8) & 0x0F));
+        mem_insert_ref(x + 1, i & 0xFF);
+      }
+      /* SH-2 PC-relative load displacement, encoded as unsigned scaled 8-bit */
+      else if (r->type == REFERENCE_TYPE_SH2_PC_RELATIVE_8BIT) {
+        int target, instruction_address, base, scale;
+
+        target = (int)l->address;
+        instruction_address = r->address - 1;
+        scale = r->special_id;
+        if (scale == 4)
+          base = (instruction_address & ~3) + 4;
+        else
+          base = instruction_address + 4;
+        i = target - base;
+        if (i < 0) {
+          print_text(NO, "%s: %s:%d: FIX_REFERENCES: SH-2 PC-relative target ($%x) is before the base address $%x.\n",
+                  get_file_name(r->file_id), get_source_file_name(r->file_id, r->file_id_source), r->linenumber, target, base);
+          return FAILED;
+        }
+        if ((i % scale) != 0) {
+          print_text(NO, "%s: %s:%d: FIX_REFERENCES: SH-2 PC-relative target ($%x) must be aligned to %d bytes from base $%x.\n",
+                  get_file_name(r->file_id), get_source_file_name(r->file_id, r->file_id_source), r->linenumber, target, scale, base);
+          return FAILED;
+        }
+        i /= scale;
+        if (i > 255) {
+          print_text(NO, "%s: %s:%d: FIX_REFERENCES: Too large distance (%d units from $%x to $%x \"%s\") for an SH-2 PC-relative load displacement.\n",
+                  get_file_name(r->file_id), get_source_file_name(r->file_id, r->file_id_source), r->linenumber, i, base, target, l->name);
+          return FAILED;
+        }
+        mem_insert_ref(x, i & 0xFF);
       }
       /* direct / relative 8-bit with a value definition */
       else if (l->status == LABEL_STATUS_DEFINE && (r->type == REFERENCE_TYPE_DIRECT_8BIT || r->type == REFERENCE_TYPE_RELATIVE_8BIT)) {
@@ -2285,6 +3159,37 @@ int fix_references(void) {
         if (mem_insert_bits(x, i, r->bits_position, r->bits_to_define) == FAILED)
           return FAILED;
       }
+      /* 8-bit ref with a maximum bit width (e.g. Cx4 MOV PH, 7-bit imm) */
+      else if (r->type == REFERENCE_TYPE_DIRECT_8BIT_MAX_BITS) {
+        int bits = r->bits_to_define;
+        i = ((int)l->address) & 0xFFFF;
+        if (bits > 0 && bits < 8) {
+          int mask = ~((1 << bits) - 1);
+          if ((i & mask) != 0) {
+            print_text(NO, "%s: %s:%d: FIX_REFERENCES: Value ($%x) of \"%s\" is too much to be a %d-bit value.\n",
+                       get_file_name(r->file_id), get_source_file_name(r->file_id, r->file_id_source), r->linenumber, i, l->name, bits);
+            return FAILED;
+          }
+        }
+        else if (i > 255) {
+          print_text(NO, "%s: %s:%d: FIX_REFERENCES: Value ($%x) of \"%s\" is too much to be a 8-bit value.\n",
+                     get_file_name(r->file_id), get_source_file_name(r->file_id, r->file_id_source), r->linenumber, i, l->name);
+          return FAILED;
+        }
+        mem_insert_ref(x, i & 0xFF);
+      }
+      /* Cx4 10-bit ref split across two bytes: low = imm[7:0], high = mask | imm[9:8] */
+      else if (r->type == REFERENCE_TYPE_CX4_10BIT) {
+        int hi_mask = r->special_id;
+        i = ((int)l->address) & 0xFFFF;
+        if (i < 0 || i > 1023) {
+          print_text(NO, "%s: %s:%d: FIX_REFERENCES: Value ($%x) of \"%s\" is too much to be a 10-bit value.\n",
+                     get_file_name(r->file_id), get_source_file_name(r->file_id, r->file_id_source), r->linenumber, i, l->name);
+          return FAILED;
+        }
+        mem_insert_ref(x, i & 0xFF);
+        mem_insert_ref(x + 1, (hi_mask & 0xFF) | ((i >> 8) & 0x03));
+      }
       else {
         i = ((int)l->address) & 0xFFFF;
         if (i > 255) {
@@ -2386,7 +3291,7 @@ int write_symbol_file(char *outname, int mode, int output_addr_to_line) {
       /* skip all dropped section labels */
       if (l->section_status == ON) {
         s = find_section(l->section);
-        if (s->alive == NO) {
+        if (s != NULL && s->alive == NO) {
           l = l->next;
           continue;
         }
@@ -2417,12 +3322,38 @@ int write_symbol_file(char *outname, int mode, int output_addr_to_line) {
       /* skip all dropped section labels */
       if (l->section_status == ON) {
         s = find_section(l->section);
-        if (s->alive == NO) {
+        if (s != NULL && s->alive == NO) {
           l = l->next;
           continue;
         }
       }
       fprintf(f, "%s: equ %.4xH\n", l->name, (int)l->address);
+      l = l->next;
+    }
+  }
+  else if (mode == SYMBOL_MODE_MAME) {
+    /* MAME-COMPATIBLE FLAT SYMBOL FILE
+       One label per line, formatted as "<hex-address> <name>" where
+       <hex-address> is the CPU-visible flat address of the label. This
+       matches the de-facto flat-symbol format consumed by MAME debugger
+       scripts and generic disassembler symbol importers. */
+    l = g_labels_first;
+    while (l != NULL) {
+      if (l->alive == NO || l->status != LABEL_STATUS_LABEL || is_label_anonymous(l->name) == YES) {
+        l = l->next;
+        continue;
+      }
+      /* skip all dropped section labels */
+      if (l->section_status == ON) {
+        s = find_section(l->section);
+        if (s != NULL && s->alive == NO) {
+          l = l->next;
+          continue;
+        }
+      }
+
+      fprintf(f, "%08x %s\n", (unsigned int)l->address, l->name);
+
       l = l->next;
     }
   }
@@ -2702,7 +3633,7 @@ int write_rom_file(char *outname) {
 
   struct section *s;
   FILE *f;
-  int i, b, e;
+  int i, b, e, neogeo_padded_size;
   
   /* get the addresses of the program start and end */
   if (g_program_address_start_type == LOAD_ADDRESS_TYPE_LABEL) {
@@ -2727,10 +3658,35 @@ int write_rom_file(char *outname) {
     return FAILED;
   }
 
+  if (_neogeo_apply_promsize_autopow2(&neogeo_padded_size) == FAILED)
+    return FAILED;
+
   f = fopen(outname, "wb");
   if (f == NULL) {
     print_text(NO, "WRITE_ROM_FILE: Error opening file \"%s\" for writing.\n", outname);
     return FAILED;
+  }
+
+  if (g_output_type == OUTPUT_TYPE_C64_CRT) {
+    if (_write_c64_crt_file(f, outname) == FAILED) {
+      fclose(f);
+      return FAILED;
+    }
+
+    fclose(f);
+
+    return SUCCEEDED;
+  }
+
+  if (g_romformat != ROMFORMAT_BIN) {
+    if (_write_megadrive_formatted_rom(f, neogeo_padded_size) == FAILED) {
+      fclose(f);
+      return FAILED;
+    }
+
+    fclose(f);
+
+    return SUCCEEDED;
   }
 
   if (g_file_header != NULL)
@@ -2762,6 +3718,11 @@ int write_rom_file(char *outname) {
       }
 
       fwrite(g_rom + g_bankaddress[i], 1, g_banksizes[i], f);
+    }
+
+    if (_write_emptyfill_padding(f, neogeo_padded_size - g_romsize) == FAILED) {
+      fclose(f);
+      return FAILED;
     }
   }
   /* program file output mode */
@@ -2827,6 +3788,10 @@ int compute_pending_calculations(void) {
       sta = sta->next;
       continue;
     }
+    if (sta->is_assertion_body == YES) {
+      sta = sta->next;
+      continue;
+    }
 
     if (sta->section_status == ON) {
       /* get section address */
@@ -2865,7 +3830,9 @@ int compute_pending_calculations(void) {
   /* next parse the stack items */
   sta = g_stacks_first;
   while (sta != NULL) {
-    if (sta->position == STACK_POSITION_DEFINITION)
+    if (sta->is_assertion_body == YES)
+      k = 0;
+    else if (sta->position == STACK_POSITION_DEFINITION)
       k = 1;
     else {
       /* skip the calculations inside discarded sections */
@@ -2890,6 +3857,12 @@ int compute_pending_calculations(void) {
   /* then compute and place the results */
   sta = g_stacks_first;
   while (sta != NULL) {
+    /* is the stack inside a definition? */
+    if (sta->is_assertion_body == YES) {
+      sta = sta->next;
+      continue;
+    }
+
     /* is the stack inside a definition? */
     if (sta->position == STACK_POSITION_DEFINITION) {
       /* all the references have been decoded, now compute */
@@ -3076,6 +4049,27 @@ int compute_pending_calculations(void) {
       if (mem_insert_bits(a, k, sta->bits_position, sta->bits_to_define) == FAILED)
         return FAILED;
     }
+    else if (sta->type == STACK_TYPE_CX4_10BIT) {
+      if (k < 0 || k > 0x3FF) {
+        print_text(NO, "%s: %s:%d: COMPUTE_PENDING_CALCULATIONS: Result (%d/$%x) of a computation is out of 10-bit range.\n",
+                get_file_name(sta->file_id), get_source_file_name(sta->file_id, sta->file_id_source), sta->linenumber, k, k);
+        return FAILED;
+      }
+      /* low byte = imm[7:0], high byte = opcode-high-mask (stored in special_id) | imm[9:8] */
+      if (mem_insert_ref(a, k & 0xFF) == FAILED)
+        return FAILED;
+      if (mem_insert_ref(a + 1, (sta->special_id & 0xFF) | ((k >> 8) & 0x03)) == FAILED)
+        return FAILED;
+    }
+    else if (sta->type == STACK_TYPE_CX4_7BIT) {
+      if (k < 0 || k > 0x7F) {
+        print_text(NO, "%s: %s:%d: COMPUTE_PENDING_CALCULATIONS: Result (%d/$%x) of a computation is out of 7-bit range.\n",
+                get_file_name(sta->file_id), get_source_file_name(sta->file_id, sta->file_id_source), sta->linenumber, k, k);
+        return FAILED;
+      }
+      if (mem_insert_ref(a, k & 0xFF) == FAILED)
+        return FAILED;
+    }
     else {
       print_text(NO, "%s: %s:%d: COMPUTE_PENDING_CALCULATIONS: Unsupported pending calculation type. Please send an error report!\n",
               get_file_name(sta->file_id), get_source_file_name(sta->file_id, sta->file_id_source), sta->linenumber);
@@ -3083,6 +4077,91 @@ int compute_pending_calculations(void) {
 
     /* next stack computation */
     sta = sta->next;
+  }
+
+  return SUCCEEDED;
+}
+
+
+static int _adjust_assertion_stack_address(struct stack *sta, int *skip) {
+
+  struct section *s;
+
+  *skip = NO;
+
+  if (sta->assertion_address_adjusted == YES)
+    return SUCCEEDED;
+
+  if (sta->section_status == ON) {
+    s = find_section(sta->section);
+    if (s != NULL) {
+      sta->bank = s->bank;
+      sta->slot = s->slot;
+      sta->base = s->base;
+    }
+    if (s != NULL && s->alive == NO) {
+      *skip = YES;
+      return SUCCEEDED;
+    }
+    if (s == NULL) {
+      *skip = YES;
+      return SUCCEEDED;
+    }
+
+    sta->memory_address = s->address + sta->address + g_slots[sta->slot].address;
+
+    if (s->status != SECTION_STATUS_ABSOLUTE)
+      sta->address += s->address + g_bankaddress[s->bank];
+    else
+      sta->address += s->address;
+  }
+  else {
+    sta->memory_address = sta->address + g_slots[sta->slot].address;
+    sta->address += g_bankaddress[sta->bank];
+  }
+
+  sta->assertion_address_adjusted = YES;
+
+  return SUCCEEDED;
+}
+
+
+int evaluate_deferred_assertions(void) {
+
+  struct assertion *assertion = g_assertions_first;
+
+  while (assertion != NULL) {
+    struct stack *sta = assertion->stack;
+    double result;
+    int skip;
+
+    if (_adjust_assertion_stack_address(sta, &skip) == FAILED)
+      return FAILED;
+    if (skip == YES) {
+      assertion = assertion->next;
+      continue;
+    }
+
+    if (parse_stack(sta) == FAILED)
+      return FAILED;
+
+    s_current_stack_calculation_addr = sta->memory_address;
+    if (compute_stack(sta, &result, NULL, NULL, NULL, NULL) == FAILED)
+      return FAILED;
+
+    if (result == 0.0) {
+      const char *message = assertion->message[0] != 0 ? assertion->message : ".ASSERT failed.";
+
+      if (assertion->action == ASSERTION_ACTION_LDWARNING) {
+        print_text(NO, "%s: %s:%d: WARNING: %s\n", get_file_name(sta->file_id), get_source_file_name(sta->file_id, sta->file_id_source), sta->linenumber, message);
+      }
+      else {
+        print_text(NO, "%s: %s:%d: ERROR: %s\n", get_file_name(sta->file_id), get_source_file_name(sta->file_id, sta->file_id_source), sta->linenumber, message);
+        return FAILED;
+      }
+    }
+
+    assertion = assertion->next;
   }
 
   return SUCCEEDED;
@@ -3406,6 +4485,10 @@ int compute_stack(struct stack *sta, double *result_ram, double *result_rom, int
           y = 0xFFFFFF;
         else if (sta->type == STACK_TYPE_32BIT)
           y = 0xFFFFFFFF;
+        else if (sta->type == STACK_TYPE_CX4_10BIT)
+          y = 0x3FF;
+        else if (sta->type == STACK_TYPE_CX4_7BIT)
+          y = 0x7F;
         else {
           print_text(NO, "%s: %s:%d: COMPUTE_STACK: NOT cannot determine the output size.\n", get_file_name(sta->file_id),
                   get_source_file_name(sta->file_id, sta->file_id_source), sta->linenumber);
@@ -3715,6 +4798,15 @@ int compute_stack(struct stack *sta, double *result_ram, double *result_rom, int
                 
         v_ram[t - 1] = _perform_and(z, 0xFF);
         v_rom[t - 1] = _perform_and(y, 0xFF);
+        if (s->sign == SI_SIGN_NEGATIVE) {
+          v_ram[t - 1] = -v_ram[t - 1];
+          v_rom[t - 1] = -v_rom[t - 1];
+        }
+        break;
+      case SI_OP_BASE:
+        y = base[t - 1];
+        v_ram[t - 1] = y & 0xFF;
+        v_rom[t - 1] = y & 0xFF;
         if (s->sign == SI_SIGN_NEGATIVE) {
           v_ram[t - 1] = -v_ram[t - 1];
           v_rom[t - 1] = -v_rom[t - 1];
@@ -4145,6 +5237,24 @@ int write_bank_header_calculations(struct stack *sta) {
     t++;
     *t = (*t & 0xE0) | ((k >> 8) & 0x1F);
   }
+  else if (sta->type == STACK_TYPE_CX4_10BIT) {
+    if (k < 0 || k > 0x3FF) {
+      print_text(NO, "%s: %s:%d: WRITE_BANK_HEADER_CALCULATIONS: Result (%d/$%x) of a computation is out of 10-bit range.\n",
+              get_file_name(sta->file_id), get_source_file_name(sta->file_id, sta->file_id_source), sta->linenumber, k, k);
+      return FAILED;
+    }
+    *t = k & 0xFF;
+    t++;
+    *t = (sta->special_id & 0xFF) | ((k >> 8) & 0x03);
+  }
+  else if (sta->type == STACK_TYPE_CX4_7BIT) {
+    if (k < 0 || k > 0x7F) {
+      print_text(NO, "%s: %s:%d: WRITE_BANK_HEADER_CALCULATIONS: Result (%d/$%x) of a computation is out of 7-bit range.\n",
+              get_file_name(sta->file_id), get_source_file_name(sta->file_id, sta->file_id_source), sta->linenumber, k, k);
+      return FAILED;
+    }
+    *t = k & 0xFF;
+  }
   else if (sta->type == STACK_TYPE_BITS) {
     int mask = 0, bits_position, bits_to_define, bits_byte;
 
@@ -4510,6 +5620,20 @@ int parse_stack(struct stack *sta) {
         else {
           find_label(si->string, s, &l);
 
+          if (l == NULL) {
+            int q = 0;
+            
+            /* didn't find the label, but if it has a namespace, try removing it and try again */
+            while (1) {
+              if (si->string[q] == '.' || si->string[q] == 0)
+                break;
+              q++;
+            }
+
+            if (si->string[q] == '.')
+              find_label(&si->string[q + 1], s, &l);
+          }
+          
           /* find matches until something else than a label is found */
           while (l != NULL && l->status == LABEL_STATUS_LABEL) {
             struct label *label_old = l;
@@ -4839,7 +5963,7 @@ struct label *get_closest_anonymous_label(char *name, char *context, int rom_add
 }
 
 
-int is_label_ok_for_sizeof(char *label) {
+static int _is_label_ok_for_sizeof(char *label) {
 
   if (is_label_anonymous(label) == YES)
     return NO;
@@ -4879,7 +6003,7 @@ static int _create_ram_bank_usage_label(int bank, int slot, char *slot_name, con
   l->section_struct = NULL;
   l->section = -1;
 
-  if (insert_label_into_maps(l, 1) == FAILED)
+  if (insert_label_into_maps(l, 1, NO) == FAILED)
     return FAILED;
 
   add_label(l);
@@ -4950,7 +6074,7 @@ int generate_sizeof_label_definitions(void) {
   lastL = NULL;
   while (l != NULL) {
     /* skip anonymous labels & child labels */
-    if (l->status == LABEL_STATUS_LABEL && is_label_ok_for_sizeof(l->name) == YES && l->alive == YES && l->file_id >= 0 &&
+    if (l->status == LABEL_STATUS_LABEL && _is_label_ok_for_sizeof(l->name) == YES && l->alive == YES && l->file_id >= 0 &&
         (lastL == NULL || !(strncmp(lastL->name, l->name, strlen(lastL->name)) == 0 && l->name[strlen(lastL->name)] == '@'))) {
       labelsN++;
       lastL = l;
@@ -4973,7 +6097,7 @@ int generate_sizeof_label_definitions(void) {
   lastL = NULL;
   while (l != NULL) {
     /* skip anonymous labels & child labels */
-    if (l->status == LABEL_STATUS_LABEL && is_label_ok_for_sizeof(l->name) == YES && l->alive == YES && l->file_id >= 0 &&
+    if (l->status == LABEL_STATUS_LABEL && _is_label_ok_for_sizeof(l->name) == YES && l->alive == YES && l->file_id >= 0 &&
         (lastL == NULL || !(strncmp(lastL->name, l->name, strlen(lastL->name)) == 0 && l->name[strlen(lastL->name)] == '@'))) {
       labels[j++] = l;
       lastL = l;
@@ -5061,7 +6185,7 @@ int generate_sizeof_label_definitions(void) {
     l->section_struct = labels[j]->section_struct;
     l->section        = labels[j]->section;
 
-    if (insert_label_into_maps(l, 1) == FAILED) {
+    if (insert_label_into_maps(l, 1, NO) == FAILED) {
       free(labels);
       return FAILED;
     }

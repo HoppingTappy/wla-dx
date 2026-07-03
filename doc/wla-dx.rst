@@ -10,6 +10,10 @@
     asmsyntax
     errormsg
     gb-support
+    ez80-support
+    cx4
+    sh2
+    sega32x
     bugs
     files
     functions

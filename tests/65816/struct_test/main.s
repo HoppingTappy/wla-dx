@@ -132,3 +132,31 @@
         .ENUM 0 export
             test    INSTANCEOF both
         .ENDE
+
+labelX:	.db 0, 1, 2, 3
+labelY:
+	.struct SomeStruct
+	    someData ds labelY-labelX
+	.endst
+
+	.db "04>"		; @BT TEST-04 04 START
+	.dstruct SomeStruct1 instanceof SomeStruct values
+            someData: .dd $01234567 ; @BT 67 45 23 01
+	.endst
+	.db "<04"		; @BT END
+
+	.struct zerozero
+            a db
+            c db
+        .endst
+
+        .db "05>"               ; @BT TEST-05 05 START
+        .db org()               ; @BT 76
+        .dstruct zerozero1 instanceof zerozero values
+            a: .db 1            ; @BT 01
+            c: .db 1+2+3        ; @BT 06
+        .endst
+        .db zerozero1           ; @BT 77
+        .db zerozero1.a	        ; @BT 77
+        .db zerozero1.c         ; @BT 78
+        .db "<05"               ; @BT END

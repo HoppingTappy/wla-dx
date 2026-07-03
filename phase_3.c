@@ -142,7 +142,7 @@ static int _add_label(struct label_def *l, struct section_def *s, int line_numbe
         
 int phase_3(void) {
 
-  int bank = 0, slot = 0, address = 0, file_name_id = 0, inz, line_number = 0, o, address_old = 0, base = 0, bits_current = 0, x, y, err;
+  int bank = 0, slot = 0, address = 0, file_name_id = 0, inz, line_number = 0, o, address_old = 0, base = 0, base_backup = -1, bits_current = 0, x, y, err;
   char tmp_buffer[MAX_NAME_LENGTH + 1], c;
   struct section_def *s = NULL;
   struct label_def *l;
@@ -208,6 +208,12 @@ int phase_3(void) {
         address = address_old;
         continue;
 
+      case '~':
+        err = fscanf(g_file_out_ptr, "%d ", &inz);
+        if (err < 1)
+          return _print_fscanf_error_accessing_internal_data_stream(file_name_id, line_number);
+        continue;
+
       case 'x':
       case 'o':
         err = fscanf(g_file_out_ptr, "%d %*d ", &inz);
@@ -251,8 +257,6 @@ int phase_3(void) {
                 get_file_name(file_name_id), line_number);
         return FAILED;
 
-#if defined(SUPERFX)
-
       case '*':
         if (g_section_status == ON) {
           err = fscanf(g_file_out_ptr, "%*s ");
@@ -280,8 +284,6 @@ int phase_3(void) {
         print_text(NO, "%s:%d: INTERNAL_PHASE_1: .ORG needs to be set before any code/data can be accepted.\n",
                 get_file_name(file_name_id), line_number);
         return FAILED;
-
-#endif
 
       case '+':
         if (g_section_status == ON) {
@@ -379,7 +381,7 @@ int phase_3(void) {
           bn = bn->next;
         }
         
-        b = calloc(sizeof(struct block), 1);
+        b = calloc(1, sizeof(struct block));
         if (b == NULL) {
           print_text(NO, "%s:%d: INTERNAL_PHASE_1: Out of memory while trying to allocate room for block \"%s\".\n",
                   get_file_name(file_name_id), line_number, bn->name);
@@ -422,7 +424,7 @@ int phase_3(void) {
         {
           int mangled_label = NO;
           
-          l = calloc(sizeof(struct label_def), 1);
+          l = calloc(1, sizeof(struct label_def));
           if (l == NULL) {
             err = fscanf(g_file_out_ptr, STRING_READ_FORMAT, g_tmp);
             if (err < 1)
@@ -493,7 +495,7 @@ int phase_3(void) {
           l->address = address;
           l->bank = s->bank;
           l->slot = s->slot;
-          l->base = s->base;
+          l->base = base;
 
           if (c == 'Z' || is_label_anonymous(l->label) == YES) {
             if (g_labels != NULL) {
@@ -524,6 +526,11 @@ int phase_3(void) {
         while (s != NULL && s->id != inz)
           s = s->next;
 
+        /* use .SECTION's base */
+        base_backup = base;
+        if (s->base >= 0)
+          base = s->base;
+      
         /* a .RAMSECTION? */
         if (s->status == SECTION_STATUS_RAM_FREE) {
           s->address = 0;
@@ -563,6 +570,11 @@ int phase_3(void) {
       case 's':
         s->size = address - s->address;
 
+        if (base_backup >= 0) {
+          base = base_backup;
+          base_backup = -1;
+        }
+
         /* discard an empty section? */
         if (s->size == 0 && s->keep == NO && g_keep_empty_sections == NO) {
           struct after_section *as;
@@ -594,6 +606,7 @@ int phase_3(void) {
 
         g_section_status = OFF;
         s = NULL;
+
         continue;
 
       case 'O':
@@ -689,6 +702,12 @@ int phase_3(void) {
           s->slot = slot;
         if (s->base < 0)
           s->base = base;
+
+        /* use .SECTION's base */
+        base_backup = base;
+        if (s->base >= 0)
+          base = s->base;
+
         s->listfile_items = 1;
         s->listfile_ints = NULL;
         s->listfile_cmds = NULL;
@@ -766,6 +785,12 @@ int phase_3(void) {
       address = address_old;
       continue;
 
+    case '~':
+      err = fscanf(g_file_out_ptr, "%d ", &inz);
+      if (err < 1)
+        return _print_fscanf_error_accessing_internal_data_stream(file_name_id, line_number);
+      continue;
+
     case 'A':
     case 'S':
       if (c == 'A') {
@@ -800,6 +825,12 @@ int phase_3(void) {
         s->bank = bank;
       if (s->slot < 0)
         s->slot = slot;
+
+      /* use .SECTION's base */
+      base_backup = base;
+      if (s->base >= 0)
+        base = s->base;
+
       if (s->base < 0)
         s->base = base;
 
@@ -816,6 +847,11 @@ int phase_3(void) {
 
     case 's':
       s->size = address - s->address;
+
+      if (base_backup >= 0) {
+        base = base_backup;
+        base_backup = -1;
+      }
 
       /* discard an empty section? */
       if (s->size == 0 && s->keep == NO && g_keep_empty_sections == NO) {
@@ -930,6 +966,34 @@ int phase_3(void) {
         return _print_fscanf_error_accessing_internal_data_stream(file_name_id, line_number);
       address++;
       continue;
+
+    case 'W':
+      err = fscanf(g_file_out_ptr, "%*d %*s ");
+      if (err < 0)
+        return _print_fscanf_error_accessing_internal_data_stream(file_name_id, line_number);
+      address++;
+      continue;
+
+    case 'K':
+      err = fscanf(g_file_out_ptr, "%*d %*s ");
+      if (err < 0)
+        return _print_fscanf_error_accessing_internal_data_stream(file_name_id, line_number);
+      address += 2;
+      continue;
+
+    case 'H':
+      err = fscanf(g_file_out_ptr, "%*d %*d ");
+      if (err < 0)
+        return _print_fscanf_error_accessing_internal_data_stream(file_name_id, line_number);
+      address += 2;
+      continue;
+
+    case 'a':
+      err = fscanf(g_file_out_ptr, "%*d ");
+      if (err < 0)
+        return _print_fscanf_error_accessing_internal_data_stream(file_name_id, line_number);
+      address++;
+      continue;
       
     case 'd':
     case 'c':
@@ -960,8 +1024,6 @@ int phase_3(void) {
       address += 2;
       continue;
 
-#if defined(SUPERFX)
-
     case '*':
       err = fscanf(g_file_out_ptr, "%*s ");
       if (err < 0)
@@ -975,8 +1037,6 @@ int phase_3(void) {
         return _print_fscanf_error_accessing_internal_data_stream(file_name_id, line_number);
       address++;
       continue;
-
-#endif
 
     case '+':
       {
@@ -1031,7 +1091,6 @@ int phase_3(void) {
         continue;
       }
 
-#if defined(SPC700)
     case 'n':
       err = fscanf(g_file_out_ptr, "%*d %*s ");
       if (err < 0)
@@ -1045,7 +1104,27 @@ int phase_3(void) {
         return _print_fscanf_error_accessing_internal_data_stream(file_name_id, line_number);
       address += 2;
       continue;
-#endif
+
+    case 'l':
+      err = fscanf(g_file_out_ptr, "%*s ");
+      if (err < 0)
+        return _print_fscanf_error_accessing_internal_data_stream(file_name_id, line_number);
+      address++;
+      continue;
+
+    case 'm':
+      err = fscanf(g_file_out_ptr, "%*d %*s ");
+      if (err < 0)
+        return _print_fscanf_error_accessing_internal_data_stream(file_name_id, line_number);
+      address += 2;
+      continue;
+
+    case '@':
+      err = fscanf(g_file_out_ptr, "%*d %*s ");
+      if (err < 0)
+        return _print_fscanf_error_accessing_internal_data_stream(file_name_id, line_number);
+      address++;
+      continue;
 
     case 'D':
       err = fscanf(g_file_out_ptr, "%*d %*d %*d %d ", &inz);
@@ -1078,7 +1157,7 @@ int phase_3(void) {
         bn = bn->next;
       }
 
-      b = calloc(sizeof(struct block), 1);
+      b = calloc(1, sizeof(struct block));
       if (b == NULL) {
         print_text(NO, "%s:%d: INTERNAL_PHASE_1: Out of memory while trying to allocate room for block \"%s\".\n",
                 get_file_name(file_name_id), line_number, bn->name);
@@ -1120,7 +1199,7 @@ int phase_3(void) {
       {
         int mangled_label = NO;
         
-        l = calloc(sizeof(struct label_def), 1);
+        l = calloc(1, sizeof(struct label_def));
         if (l == NULL) {
           err = fscanf(g_file_out_ptr, STRING_READ_FORMAT, g_tmp);
           if (err < 1)
@@ -1192,7 +1271,7 @@ int phase_3(void) {
           l->address = address - s->address;
           l->bank = s->bank;
           l->slot = s->slot;
-          l->base = s->base;
+          l->base = base;
         }
         else {
           l->section_id = 0;
@@ -1403,7 +1482,7 @@ int process_macro_in(int id, char *name, int file_name_id, int line_number) {
   /* is it ISOLATED? */
   if (macro->isolated_local == YES || macro->isolated_unnamed == YES) {
     /* yes, create a new label context for it */
-    struct label_context *lc = calloc(sizeof(struct label_context), 1);
+    struct label_context *lc = calloc(1, sizeof(struct label_context));
 
     if (lc == NULL) {
       print_text(NO, "%s:%d: Out of memory while allocating a new label context.\n", get_file_name(file_name_id), line_number);

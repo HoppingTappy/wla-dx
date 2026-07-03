@@ -10,6 +10,7 @@
 
 #include "defines.h"
 
+#include "decode.h"
 #include "stack.h"
 #include "phase_1.h"
 #include "parse.h"
@@ -31,6 +32,7 @@ extern struct active_file_info *g_active_file_info_first, *g_active_file_info_la
 
 #if defined(MCS6502) || defined(WDC65C02) || defined(CSG65CE02) || defined(W65816) || defined(HUC6280) || defined(MC6800) || defined(MC6801) || defined(MC6809) || defined(K053248)
 extern int g_xbit_size, g_accu_size, g_index_size;
+extern int g_accu_set_by_rep_sep, g_index_set_by_rep_sep;
 #endif
 
 #if defined(W65816)
@@ -41,8 +43,77 @@ extern int g_use_wdc_standard;
 extern int g_input_number_expects_dot;
 #endif
 
+#if defined(EZ80)
+extern int g_ez80_adl_mode;
+#endif
+
 static struct instruction *s_instruction_tmp;
 static int s_parser_source_index;
+
+#if defined(EZ80)
+static int s_ez80_adl_prefix;
+
+static int _ez80_get_adl_prefix(int *suffix_position) {
+
+  char *dot;
+  char suffix[4];
+  int suffix_length;
+  int i;
+
+  dot = strrchr(g_tmp, '.');
+  if (dot == NULL || dot == g_tmp)
+    return 0;
+
+  suffix_length = (int)strlen(dot + 1);
+  if (!(suffix_length == 1 || suffix_length == 3))
+    return 0;
+
+  for (i = 0; i < suffix_length; i++)
+    suffix[i] = (char)toupper((int)dot[i + 1]);
+  suffix[suffix_length] = 0;
+
+  if (strcmp(suffix, "S") == 0 || strcmp(suffix, "SIS") == 0)
+    i = 0x40;
+  else if (strcmp(suffix, "LIS") == 0)
+    i = 0x49;
+  else if (strcmp(suffix, "SIL") == 0)
+    i = 0x52;
+  else if (strcmp(suffix, "L") == 0 || strcmp(suffix, "LIL") == 0)
+    i = 0x5B;
+  else
+    return 0;
+
+  *suffix_position = (int)(dot - g_tmp);
+  *dot = 0;
+  g_ss = *suffix_position;
+
+  return i;
+}
+
+static void _ez80_restore_adl_suffix(int suffix_position, int original_ss) {
+
+  if (suffix_position < 0)
+    return;
+
+  g_tmp[suffix_position] = '.';
+  g_ss = original_ss;
+}
+
+static int _ez80_use_24bit_immediate(void) {
+
+  if (s_ez80_adl_prefix == 0x40 || s_ez80_adl_prefix == 0x49)
+    return NO;
+  if (s_ez80_adl_prefix == 0x52 || s_ez80_adl_prefix == 0x5B)
+    return YES;
+
+  return g_ez80_adl_mode;
+}
+#endif
+
+#if defined(SH2)
+static void _sh2_clear_delay_slot(void);
+static void _sh2_note_assembled_instruction(struct instruction *instruction);
+#endif
 
 #define IS_THE_MATCH_COMPLETE(x) (s_instruction_tmp->string[x] == 0 && (g_buffer[s_parser_source_index] == 0x0A || g_buffer[s_parser_source_index] == '\\' || (g_buffer[s_parser_source_index] == ' ' && g_buffer[s_parser_source_index+1] == '\\')))
 
@@ -53,6 +124,17 @@ static void _output_assembled_instruction(struct instruction *instruction, const
   
   if (instruction == NULL)
     return;
+
+#if defined(SH2)
+  _sh2_note_assembled_instruction(instruction);
+#endif
+
+#if defined(EZ80)
+  if (s_ez80_adl_prefix != 0) {
+    fprintf(g_file_out_ptr, "d%d ", s_ez80_adl_prefix);
+    s_ez80_adl_prefix = 0;
+  }
+#endif
   
   va_start(ap, format);
 
@@ -246,7 +328,7 @@ static int _parse_exg_tfr_registers(void) {
 #if defined(SUPERFX)
 
 /* parse a number [min, max] */
-int _parse_tiny_int(int min, int max) {
+static int _parse_tiny_int(int min, int max) {
 
   int old_i, value, res;
   
@@ -265,6 +347,318 @@ int _parse_tiny_int(int min, int max) {
     return -1;
   
   return value;
+}
+
+#endif
+
+
+#if defined(CX4)
+
+#define CX4_SHIFTED_A_PLACEHOLDER '@'
+
+static int _cx4_skip_spaces(const char *code, int index) {
+
+  while (code[index] == ' ')
+    index++;
+
+  return index;
+}
+
+
+static int _cx4_looks_like_register_name(char *label) {
+
+  if (strcaselesscmp(label, "A") == 0 || strcaselesscmp(label, "MACH") == 0 || strcaselesscmp(label, "MACL") == 0 ||
+      strcaselesscmp(label, "MDR") == 0 || strcaselesscmp(label, "ROM") == 0 ||
+      strcaselesscmp(label, "ROMB") == 0 || strcaselesscmp(label, "RAM") == 0 || strcaselesscmp(label, "RAMB") == 0 ||
+      strcaselesscmp(label, "MAR") == 0 || strcaselesscmp(label, "DPR") == 0 || strcaselesscmp(label, "IP") == 0 ||
+      strcaselesscmp(label, "PC") == 0 || strcaselesscmp(label, "P") == 0)
+    return YES;
+
+  if ((label[0] == 'R' || label[0] == 'r') && isdigit((unsigned char)label[1]) != 0)
+    return YES;
+  if ((label[0] == 'I' || label[0] == 'i') && (label[1] == 'R' || label[1] == 'r') && isdigit((unsigned char)label[2]) != 0)
+    return YES;
+
+  return NO;
+}
+
+
+static int _cx4_parse_number_at(int *index, int *value, int *result_type, char *label) {
+
+  int old_i, result;
+
+  *index = _cx4_skip_spaces(g_buffer, *index);
+
+  old_i = g_source_index;
+  g_source_index = *index;
+  result = input_number();
+  *index = g_source_index;
+  g_source_index = old_i;
+
+  *result_type = result;
+  if (result == SUCCEEDED)
+    *value = g_parsed_int;
+  else if (result == INPUT_NUMBER_ADDRESS_LABEL && label != NULL)
+    strcpy(label, g_label);
+
+  return result;
+}
+
+
+static int _cx4_parse_uint(int *index, int min, int max, int *value) {
+
+  int result_type, value_local = 0;
+
+  if (_cx4_parse_number_at(index, &value_local, &result_type, NULL) != SUCCEEDED)
+    return FAILED;
+
+  if (value_local < min || value_local > max)
+    return FAILED;
+
+  *value = value_local;
+
+  return SUCCEEDED;
+}
+
+
+static int _cx4_map_register(char *label, int *reg, int gpr_only) {
+
+  int value;
+
+  /* The accumulator A is not addressable as a register; callers that expect
+     A must detect it separately via the identifier stored in g_label. */
+  if (strcaselesscmp(label, "A") == 0)
+    return FAILED;
+  if (strcaselesscmp(label, "MACH") == 0) {
+    *reg = 0x01;
+    return gpr_only == YES ? FAILED : SUCCEEDED;
+  }
+  if (strcaselesscmp(label, "MACL") == 0) {
+    *reg = 0x02;
+    return gpr_only == YES ? FAILED : SUCCEEDED;
+  }
+  if (strcaselesscmp(label, "MDR") == 0) {
+    *reg = 0x03;
+    return gpr_only == YES ? FAILED : SUCCEEDED;
+  }
+  if (strcaselesscmp(label, "ROM") == 0 || strcaselesscmp(label, "ROMB") == 0) {
+    *reg = 0x08;
+    return gpr_only == YES ? FAILED : SUCCEEDED;
+  }
+  if (strcaselesscmp(label, "RAM") == 0 || strcaselesscmp(label, "RAMB") == 0) {
+    *reg = 0x0C;
+    return gpr_only == YES ? FAILED : SUCCEEDED;
+  }
+  if (strcaselesscmp(label, "MAR") == 0) {
+    *reg = 0x13;
+    return gpr_only == YES ? FAILED : SUCCEEDED;
+  }
+  if (strcaselesscmp(label, "DPR") == 0) {
+    *reg = 0x1C;
+    return gpr_only == YES ? FAILED : SUCCEEDED;
+  }
+  if (strcaselesscmp(label, "IP") == 0 || strcaselesscmp(label, "PC") == 0) {
+    *reg = 0x20;
+    return gpr_only == YES ? FAILED : SUCCEEDED;
+  }
+  if (strcaselesscmp(label, "P") == 0) {
+    *reg = 0x28;
+    return gpr_only == YES ? FAILED : SUCCEEDED;
+  }
+
+  if ((label[0] == 'I' || label[0] == 'i') && (label[1] == 'R' || label[1] == 'r')) {
+    value = atoi(label + 2);
+    if (value < 0 || value > 15)
+      return FAILED;
+    *reg = 0x50 + value;
+    return gpr_only == YES ? FAILED : SUCCEEDED;
+  }
+
+  if (label[0] == 'R' || label[0] == 'r') {
+    value = atoi(label + 1);
+    if (value < 0 || value > 15)
+      return FAILED;
+    *reg = 0x60 + value;
+    return SUCCEEDED;
+  }
+
+  return FAILED;
+}
+
+
+static int _cx4_parse_identifier_at(int *index, char *identifier) {
+
+  int i = 0;
+
+  *index = _cx4_skip_spaces(g_buffer, *index);
+  if (isalpha((unsigned char)g_buffer[*index]) == 0)
+    return FAILED;
+
+  while ((isalpha((unsigned char)g_buffer[*index]) != 0 || isdigit((unsigned char)g_buffer[*index]) != 0 || g_buffer[*index] == '_') && i < MAX_NAME_LENGTH) {
+    identifier[i++] = g_buffer[*index];
+    (*index)++;
+  }
+  identifier[i] = 0;
+
+  return SUCCEEDED;
+}
+
+
+static int _cx4_parse_register_at(int *index, int *reg, int gpr_only, int *was_identifier) {
+
+  char identifier[MAX_NAME_LENGTH + 1];
+
+  if (_cx4_parse_identifier_at(index, identifier) == FAILED) {
+    if (was_identifier != NULL)
+      *was_identifier = NO;
+    g_label[0] = 0;
+    return FAILED;
+  }
+
+  if (was_identifier != NULL)
+    *was_identifier = YES;
+
+  strcpy(g_label, identifier);
+
+  return _cx4_map_register(identifier, reg, gpr_only);
+}
+
+
+static int _cx4_parse_shifted_accumulator(int *index, int *shift) {
+
+  int reg, was_identifier = NO, value = 0;
+
+  if (_cx4_parse_register_at(index, &reg, NO, &was_identifier) != FAILED) {
+    /* A named register that isn't A */
+    print_error(ERROR_ERR, "Was expecting accumulator A.\n");
+    return FAILED;
+  }
+
+  if (was_identifier == NO)
+    return FAILED;
+  if (strcaselesscmp(g_label, "A") != 0) {
+    print_error(ERROR_ERR, "Was expecting accumulator A.\n");
+    return FAILED;
+  }
+
+  *index = _cx4_skip_spaces(g_buffer, *index);
+  if (g_buffer[*index] != '<' || g_buffer[*index + 1] != '<') {
+    *shift = 0;
+    return SUCCEEDED;
+  }
+
+  *index += 2;
+  if (_cx4_parse_uint(index, 0, 16, &value) == FAILED) {
+    print_error(ERROR_ERR, "Was expecting shift amount 0, 1, 8 or 16.\n");
+    return FAILED;
+  }
+
+  if (value == 0)
+    *shift = 0;
+  else if (value == 1)
+    *shift = 1;
+  else if (value == 8)
+    *shift = 2;
+  else if (value == 16)
+    *shift = 3;
+  else {
+    print_error(ERROR_ERR, "Cx4 ALU shifts must be 0, 1, 8 or 16.\n");
+    return FAILED;
+  }
+
+  return SUCCEEDED;
+}
+
+
+static void _cx4_emit_word(int word) {
+
+  _output_assembled_instruction(s_instruction_tmp, "k%d d%d d%d ", g_active_file_info_last->line_current, word & 0xFF, (word >> 8) & 0xFF);
+}
+
+
+static void _cx4_emit_low8_word(int opcode, int result_type, int value, const char *label) {
+
+  int high = (opcode >> 8) & 0xFF;
+
+  _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+  if (result_type == SUCCEEDED)
+    _output_assembled_instruction(s_instruction_tmp, "d%d d%d ", value & 0xFF, high);
+  else if (result_type == INPUT_NUMBER_ADDRESS_LABEL)
+    _output_assembled_instruction(s_instruction_tmp, "Q%s d%d ", label, high);
+  else
+    _output_assembled_instruction(s_instruction_tmp, "c%d d%d ", g_latest_stack, high);
+}
+
+
+/* emit a Cx4 branch/jump instruction where the low byte is a WORD-scaled
+   target (byte address / 2).  Used by BRA/BSR/JMP/JSR/Bxx (decode case 1).
+   The HG51B's program counter counts words (every instruction is 2 bytes),
+   so a label whose byte address is $58 must be encoded as $2C in the
+   operand byte.  At link time REFERENCE_TYPE_DIRECT_9BIT_SHORT performs
+   the same (address >> 1) conversion and an even-address sanity check. */
+static void _cx4_emit_branch_word(int opcode, int result_type, int value, const char *label) {
+
+  int high = (opcode >> 8) & 0xFF;
+
+  _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+  if (result_type == SUCCEEDED) {
+    if ((value & 1) != 0) {
+      print_error(ERROR_NUM, "Cx4 branch target must be even (was $%x).\n", value);
+      return;
+    }
+    if (value < 0 || value > 510) {
+      print_error(ERROR_NUM, "Cx4 branch target out of 9-bit range (was $%x).\n", value);
+      return;
+    }
+    _output_assembled_instruction(s_instruction_tmp, "d%d d%d ", (value >> 1) & 0xFF, high);
+  }
+  else if (result_type == INPUT_NUMBER_ADDRESS_LABEL)
+    _output_assembled_instruction(s_instruction_tmp, "*%s d%d ", label, high);
+  else
+    _output_assembled_instruction(s_instruction_tmp, "c%d d%d ", g_latest_stack, high);
+}
+
+
+/* emit the low 8 bits of a 16-bit Cx4 opcode where the low-byte imm has a
+   restricted bit width.  "bits" is the maximum bit width (1-8) the low-byte
+   value must fit in; this is also propagated to WLALINK so it can apply the
+   same range check once pending labels resolve. */
+static void _cx4_emit_low_n_word(int opcode, int bits, int result_type, int value, const char *label) {
+
+  int high = (opcode >> 8) & 0xFF;
+
+  _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+  if (result_type == SUCCEEDED)
+    _output_assembled_instruction(s_instruction_tmp, "d%d d%d ", value & 0xFF, high);
+  else if (result_type == INPUT_NUMBER_ADDRESS_LABEL)
+    _output_assembled_instruction(s_instruction_tmp, "W%d %s d%d ", bits, label, high);
+  else
+    _output_assembled_instruction(s_instruction_tmp, "a%d d%d ", g_latest_stack, high);
+}
+
+
+/* emit a 10-bit Cx4 immediate (RDROM q) as two bytes: low byte = imm[7:0],
+   high byte = opcode_high | ((imm>>8) & 0x03).  With a label, defer the
+   10-bit range check to WLALINK via the "K" emit code. */
+static void _cx4_emit_10bit_word(int opcode, int result_type, int value, const char *label) {
+
+  int high = (opcode >> 8) & 0xFF;
+
+  _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+  if (result_type == SUCCEEDED) {
+    _output_assembled_instruction(s_instruction_tmp, "d%d d%d ",
+                                  value & 0xFF,
+                                  high | ((value >> 8) & 0x03));
+  }
+  else if (result_type == INPUT_NUMBER_ADDRESS_LABEL) {
+    _output_assembled_instruction(s_instruction_tmp, "K%d %s ", high, label);
+  }
+  else {
+    /* stack calculation: emit a new per-stack code that carries the opcode
+       high byte (the mask to OR with imm[9:8]). Resolution and range-check
+       happen in phase_4 (if the stack resolves there) or in WLALINK. */
+    _output_assembled_instruction(s_instruction_tmp, "H%d %d ", high, g_latest_stack);
+  }
 }
 
 #endif
@@ -508,7 +902,6 @@ static int _mc68000_parse_ea(char *code, int *index, int *reg1, int *reg2, int *
           if (code[i] >= '0' && code[i] <= '7')
             number2 = code[i++] - '0';
           else if (c2 == 'S' && toupper((int)code[i]) == 'P') {
-            c2 = 'A';
             number2 = 7;
             i++;
           }
@@ -579,7 +972,7 @@ static int _mc68000_parse_ea(char *code, int *index, int *reg1, int *reg2, int *
       return FAILED;
     
     i++;
-    if ((code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
+    if ((c != 'S' && code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
       if (c == 'S')
         *reg1 = 7;
       else
@@ -641,7 +1034,7 @@ static int _mc68000_parse_ea(char *code, int *index, int *reg1, int *reg2, int *
     /* An? */
     if (c == 'A' || c =='S') {
       i++;
-      if ((code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
+      if ((c != 'S' && code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
         if (c == 'S')
           *reg1 = 7;
         else
@@ -710,7 +1103,7 @@ static int _mc68000_parse_ea(char *code, int *index, int *reg1, int *reg2, int *
           return FAILED;
 
         i++;
-        if ((code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
+        if ((c != 'S' && code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
           if (c == 'S')
             *reg1 = 7;
           else
@@ -902,7 +1295,7 @@ static int _mc68000_parse_ea(char *code, int *index, int *reg1, int *reg2, int *
     else if (c == 'A' || c == 'S') {
       /* d16(An) */
       i++;
-      if ((code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
+      if ((c != 'S' && code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
         *mode = B8(00000101);
 
         if (c == 'S')
@@ -956,7 +1349,7 @@ static int _mc68000_parse_register(char *code, int *index, int *reg, int *mode) 
       return FAILED;
     
     i++;
-    if ((code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
+    if ((c != 'S' && code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
       if (c == 'S')
         *reg = 7;
       else
@@ -979,7 +1372,7 @@ static int _mc68000_parse_register(char *code, int *index, int *reg, int *mode) 
 
     if (c == 'A' || c == 'S') {
       i++;
-      if ((code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
+      if ((c != 'S' && code[i] >= '0' && code[i] <= '7') || (c == 'S' && toupper((int)code[i]) == 'P')) {
         if (c == 'S')
           *reg = 7;
         else
@@ -1024,17 +1417,486 @@ static int _mc68000_parse_register(char *code, int *index, int *reg, int *mode) 
 #endif
 
 
+#if defined(SH2)
+
+#define SH2_REG_SR   16
+#define SH2_REG_GBR  17
+#define SH2_REG_VBR  18
+#define SH2_REG_MACH 19
+#define SH2_REG_MACL 20
+#define SH2_REG_PR   21
+
+static int _sh2_skip_spaces(int index) {
+
+  while (g_buffer[index] == ' ' || g_buffer[index] == '\t')
+    index++;
+
+  return index;
+}
+
+
+static int _sh2_is_end(int index) {
+
+  index = _sh2_skip_spaces(index);
+
+  if (g_buffer[index] == 0x0A || g_buffer[index] == '\\' || (g_buffer[index] == ' ' && g_buffer[index + 1] == '\\'))
+    return SUCCEEDED;
+
+  return FAILED;
+}
+
+
+static int _sh2_parse_comma(int *index) {
+
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != ',')
+    return FAILED;
+  *index = *index + 1;
+
+  return SUCCEEDED;
+}
+
+
+static int _sh2_parse_gpr(int *index, int *reg) {
+
+  int i, value;
+
+  i = _sh2_skip_spaces(*index);
+  if (toupper((int)g_buffer[i]) != 'R')
+    return FAILED;
+  i++;
+
+  if (g_buffer[i] < '0' || g_buffer[i] > '9')
+    return FAILED;
+
+  value = g_buffer[i] - '0';
+  i++;
+  if (g_buffer[i] >= '0' && g_buffer[i] <= '9') {
+    value = value * 10 + (g_buffer[i] - '0');
+    i++;
+  }
+
+  if (value < 0 || value > 15)
+    return FAILED;
+  if (isalnum((int)g_buffer[i]) || g_buffer[i] == '_')
+    return FAILED;
+
+  *reg = value;
+  *index = i;
+
+  return SUCCEEDED;
+}
+
+
+static int _sh2_parse_identifier(int *index, char *identifier) {
+
+  int i, n;
+
+  i = _sh2_skip_spaces(*index);
+  n = 0;
+  while (isalpha((int)g_buffer[i])) {
+    if (n >= MAX_NAME_LENGTH)
+      return FAILED;
+    identifier[n++] = (char)toupper((int)g_buffer[i]);
+    i++;
+  }
+
+  if (n == 0)
+    return FAILED;
+  if (isalnum((int)g_buffer[i]) || g_buffer[i] == '_')
+    return FAILED;
+
+  identifier[n] = 0;
+  *index = i;
+
+  return SUCCEEDED;
+}
+
+
+static int _sh2_parse_system_register(int *index, int *reg) {
+
+  char identifier[MAX_NAME_LENGTH + 1];
+
+  if (_sh2_parse_identifier(index, identifier) == FAILED)
+    return FAILED;
+
+  if (strcmp(identifier, "SR") == 0)
+    *reg = SH2_REG_SR;
+  else if (strcmp(identifier, "GBR") == 0)
+    *reg = SH2_REG_GBR;
+  else if (strcmp(identifier, "VBR") == 0)
+    *reg = SH2_REG_VBR;
+  else if (strcmp(identifier, "MACH") == 0)
+    *reg = SH2_REG_MACH;
+  else if (strcmp(identifier, "MACL") == 0)
+    *reg = SH2_REG_MACL;
+  else if (strcmp(identifier, "PR") == 0)
+    *reg = SH2_REG_PR;
+  else
+    return FAILED;
+
+  return SUCCEEDED;
+}
+
+
+static int _sh2_expected_register(unsigned short opcode) {
+
+  switch (opcode) {
+  case 0x400E:
+  case 0x4007:
+  case 0x0002:
+  case 0x4003:
+    return SH2_REG_SR;
+  case 0x401E:
+  case 0x4017:
+  case 0x0012:
+  case 0x4013:
+    return SH2_REG_GBR;
+  case 0x402E:
+  case 0x4027:
+  case 0x0022:
+  case 0x4023:
+    return SH2_REG_VBR;
+  case 0x400A:
+  case 0x4006:
+  case 0x000A:
+  case 0x4002:
+    return SH2_REG_MACH;
+  case 0x401A:
+  case 0x4016:
+  case 0x001A:
+  case 0x4012:
+    return SH2_REG_MACL;
+  case 0x402A:
+  case 0x4026:
+  case 0x002A:
+  case 0x4022:
+    return SH2_REG_PR;
+  default:
+    return -1;
+  }
+}
+
+
+static int _sh2_parse_number(int *index, int *value, int *result_type, char *label) {
+
+  int old_index, result;
+
+  *index = _sh2_skip_spaces(*index);
+  old_index = g_source_index;
+  g_source_index = *index;
+  result = input_number();
+  *index = g_source_index;
+  g_source_index = old_index;
+
+  *result_type = result;
+  if (result == SUCCEEDED)
+    *value = g_parsed_int;
+  else if (result == INPUT_NUMBER_ADDRESS_LABEL && label != NULL)
+    strcpy(label, g_label);
+  else if (result == INPUT_NUMBER_STACK)
+    *value = g_latest_stack;
+
+  return result;
+}
+
+
+static int _sh2_parse_immediate(int *index, int *value, int *result_type, char *label) {
+
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != '#')
+    return FAILED;
+  *index = *index + 1;
+
+  return _sh2_parse_number(index, value, result_type, label);
+}
+
+
+static int _sh2_emit_low8(unsigned short opcode, int value, int result_type, char *label) {
+
+  int high;
+
+  high = (opcode >> 8) & 0xFF;
+
+  if (result_type == SUCCEEDED) {
+    if (value < -128 || value > 255) {
+      print_error(ERROR_NUM, "Out of 8-bit range.\n");
+      return FAILED;
+    }
+    _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode | (value & 0xFF));
+  }
+  else if (result_type == INPUT_NUMBER_ADDRESS_LABEL)
+    _output_assembled_instruction(s_instruction_tmp, "k%d d%d Q%s ", g_active_file_info_last->line_current, high, label);
+  else if (result_type == INPUT_NUMBER_STACK)
+    _output_assembled_instruction(s_instruction_tmp, "d%d c%d ", high, value);
+  else
+    return FAILED;
+
+  return SUCCEEDED;
+}
+
+
+static int _sh2_finish(int index) {
+
+  if (_sh2_is_end(index) == FAILED)
+    return FAILED;
+
+  g_source_index = _sh2_skip_spaces(index);
+
+  return SUCCEEDED;
+}
+
+
+static int _sh2_parse_at_gpr(int *index, int *reg) {
+
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != '@')
+    return FAILED;
+  *index = *index + 1;
+
+  return _sh2_parse_gpr(index, reg);
+}
+
+
+static int _sh2_parse_at_gpr_plus(int *index, int *reg) {
+
+  if (_sh2_parse_at_gpr(index, reg) == FAILED)
+    return FAILED;
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != '+')
+    return FAILED;
+  *index = *index + 1;
+
+  return SUCCEEDED;
+}
+
+
+static int _sh2_parse_at_minus_gpr(int *index, int *reg) {
+
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != '@')
+    return FAILED;
+  *index = *index + 1;
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != '-')
+    return FAILED;
+  *index = *index + 1;
+
+  return _sh2_parse_gpr(index, reg);
+}
+
+
+static int _sh2_parse_at_disp_gpr(int *index, int *disp, int *result_type, char *label, int *reg) {
+
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != '@')
+    return FAILED;
+  *index = *index + 1;
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != '(')
+    return FAILED;
+  *index = *index + 1;
+
+  if (_sh2_parse_number(index, disp, result_type, label) == FAILED)
+    return FAILED;
+  if (_sh2_parse_comma(index) == FAILED)
+    return FAILED;
+  if (_sh2_parse_gpr(index, reg) == FAILED)
+    return FAILED;
+
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != ')')
+    return FAILED;
+  *index = *index + 1;
+
+  return SUCCEEDED;
+}
+
+
+static int _sh2_parse_at_disp_named_reg(int *index, int *disp, int *result_type, char *label, const char *name) {
+
+  char identifier[MAX_NAME_LENGTH + 1];
+
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != '@')
+    return FAILED;
+  *index = *index + 1;
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != '(')
+    return FAILED;
+  *index = *index + 1;
+
+  if (_sh2_parse_number(index, disp, result_type, label) == FAILED)
+    return FAILED;
+  if (_sh2_parse_comma(index) == FAILED)
+    return FAILED;
+  if (_sh2_parse_identifier(index, identifier) == FAILED)
+    return FAILED;
+  if (strcmp(identifier, name) != 0)
+    return FAILED;
+
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != ')')
+    return FAILED;
+  *index = *index + 1;
+
+  return SUCCEEDED;
+}
+
+
+static int _sh2_parse_at_r0_gpr(int *index, int *reg) {
+
+  int r0;
+
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != '@')
+    return FAILED;
+  *index = *index + 1;
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != '(')
+    return FAILED;
+  *index = *index + 1;
+  if (_sh2_parse_gpr(index, &r0) == FAILED)
+    return FAILED;
+  if (r0 != 0)
+    return FAILED;
+  if (_sh2_parse_comma(index) == FAILED)
+    return FAILED;
+  if (_sh2_parse_gpr(index, reg) == FAILED)
+    return FAILED;
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != ')')
+    return FAILED;
+  *index = *index + 1;
+
+  return SUCCEEDED;
+}
+
+
+static int _sh2_parse_at_r0_gbr(int *index) {
+
+  char identifier[MAX_NAME_LENGTH + 1];
+  int r0;
+
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != '@')
+    return FAILED;
+  *index = *index + 1;
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != '(')
+    return FAILED;
+  *index = *index + 1;
+  if (_sh2_parse_gpr(index, &r0) == FAILED)
+    return FAILED;
+  if (r0 != 0)
+    return FAILED;
+  if (_sh2_parse_comma(index) == FAILED)
+    return FAILED;
+  if (_sh2_parse_identifier(index, identifier) == FAILED)
+    return FAILED;
+  if (strcmp(identifier, "GBR") != 0)
+    return FAILED;
+  *index = _sh2_skip_spaces(*index);
+  if (g_buffer[*index] != ')')
+    return FAILED;
+  *index = *index + 1;
+
+  return SUCCEEDED;
+}
+
+
+static int _sh2_encode_disp4(int disp, int scale) {
+
+  if (disp < 0) {
+    print_error(ERROR_NUM, "Negative displacement is not allowed here.\n");
+    return -1;
+  }
+  if ((disp % scale) != 0) {
+    print_error(ERROR_NUM, "Displacement must be aligned to operand size.\n");
+    return -1;
+  }
+  disp /= scale;
+  if (disp > 15) {
+    print_error(ERROR_NUM, "Out of 4-bit displacement range.\n");
+    return -1;
+  }
+
+  return disp;
+}
+
+
+static int _sh2_encode_disp8(int disp, int scale) {
+
+  if (disp < 0) {
+    print_error(ERROR_NUM, "Negative displacement is not allowed here.\n");
+    return -1;
+  }
+  if ((disp % scale) != 0) {
+    print_error(ERROR_NUM, "Displacement must be aligned to operand size.\n");
+    return -1;
+  }
+  disp /= scale;
+  if (disp > 255) {
+    print_error(ERROR_NUM, "Out of 8-bit displacement range.\n");
+    return -1;
+  }
+
+  return disp;
+}
+
+
+static int s_sh2_delay_slot_active = NO;
+static char s_sh2_delay_slot_source[INSTRUCTION_STRING_LENGTH_MAX + 1];
+
+
+static int _sh2_instruction_has_delay_slot(struct instruction *instruction) {
+
+  if (strcmp(instruction->string, "BF/S") == 0 || strcmp(instruction->string, "BT/S") == 0 ||
+      strcmp(instruction->string, "BRA") == 0 || strcmp(instruction->string, "BRAF") == 0 ||
+      strcmp(instruction->string, "BSR") == 0 || strcmp(instruction->string, "BSRF") == 0 ||
+      strcmp(instruction->string, "JMP") == 0 || strcmp(instruction->string, "JSR") == 0 ||
+      strcmp(instruction->string, "RTE") == 0 || strcmp(instruction->string, "RTS") == 0)
+    return YES;
+
+  return NO;
+}
+
+
+static void _sh2_clear_delay_slot(void) {
+
+  s_sh2_delay_slot_active = NO;
+  s_sh2_delay_slot_source[0] = 0;
+}
+
+
+static void _sh2_note_assembled_instruction(struct instruction *instruction) {
+
+  if (s_sh2_delay_slot_active == YES) {
+    if (_sh2_instruction_has_delay_slot(instruction) == YES)
+      print_error(ERROR_WRN, "SH-2 delay slot after \"%s\" contains \"%s\"; delayed branches, jumps and returns are not allowed in a delay slot.\n", s_sh2_delay_slot_source, instruction->string);
+    _sh2_clear_delay_slot();
+  }
+
+  if (_sh2_instruction_has_delay_slot(instruction) == YES) {
+    strcpy(s_sh2_delay_slot_source, instruction->string);
+    s_sh2_delay_slot_active = YES;
+  }
+}
+
+#endif
+
+
 int evaluate_token(void) {
 
   int f, x, y, last_stack_id_backup, instruction_i;
-#if defined(Z80) || defined(Z80N) || defined(SPC700) || defined(W65816) || defined(WDC65C02) || defined(CSG65CE02) || defined(HUC6280)
+#if defined(Z80) || defined(Z80N) || defined(EZ80) || defined(SPC700) || defined(W65816) || defined(WDC65C02) || defined(CSG65CE02) || defined(HUC6280)
   int e, v, h;
   char labelx[MAX_NAME_LENGTH + 1];
 #endif
 #if defined(SPC700)
   int g;
 #endif
-#if !defined(MC68000)
+#if !defined(MC68000) && !defined(CX4) && !defined(SH2)
   int z;
 #endif
 #if defined(HUC6280)
@@ -1044,13 +1906,31 @@ int evaluate_token(void) {
 #if defined(SUPERFX)
   int tiny;
 #endif
-  
+#if defined(EZ80)
+  int ez80_adl_prefix;
+  int ez80_adl_original_ss;
+  int ez80_adl_suffix_position;
+#endif
+
+#if defined(CX4)
+  int e = 0, q = 0, v = FAILED;
+  char labelx[MAX_NAME_LENGTH + 1];
+#endif
+
+#if defined(EZ80)
+  s_ez80_adl_prefix = 0;
+  ez80_adl_suffix_position = -1;
+#endif
+
   /* are we in an enum, ramsection, or struct? */
   if (g_in_enum == YES || g_in_ramsection == YES || g_in_struct == YES)
     return parse_enum_token();
 
   /* is it a directive? */
   if (g_tmp[0] == '.') {
+#if defined(SH2)
+    _sh2_clear_delay_slot();
+#endif
     x = parse_directive();
     if (x != DIRECTIVE_NOT_IDENTIFIED)
       return x;
@@ -1101,6 +1981,15 @@ int evaluate_token(void) {
 
     return SUCCEEDED;
   }
+
+#if defined(EZ80)
+  ez80_adl_original_ss = g_ss;
+  ez80_adl_prefix = _ez80_get_adl_prefix(&ez80_adl_suffix_position);
+  if (g_ss == 0) {
+    _ez80_restore_adl_suffix(ez80_adl_suffix_position, ez80_adl_original_ss);
+    return EVALUATE_TOKEN_NOT_IDENTIFIED;
+  }
+#endif
 
   /* INSTRUCTION? */
   instruction_i = g_instruction_p[(unsigned char)g_tmp[0]];
@@ -1153,6 +2042,9 @@ int evaluate_token(void) {
 
     /* beginning of the instruction matches what we have in the source code */
     s_parser_source_index = g_source_index;
+  #if defined(EZ80)
+    s_ez80_adl_prefix = ez80_adl_prefix;
+  #endif
 
     /* remember the last stack calculation created -> if we create new stack calculations in the
        following switch() and need to roll back after that we'll delete all stack calculations created
@@ -1166,6 +2058,512 @@ int evaluate_token(void) {
 #endif
 
     switch (s_instruction_tmp->type) {
+
+#if defined(SH2)
+
+      /*************************************************************************************************/
+      /* <SH-2> */
+      /*************************************************************************************************/
+
+    case SH2_MODE_NONE:
+      if (_sh2_finish(s_parser_source_index) == SUCCEEDED) {
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex);
+        return SUCCEEDED;
+      }
+      break;
+
+    case SH2_MODE_RN:
+      {
+        int index, rn;
+
+        index = s_parser_source_index;
+        if (_sh2_parse_gpr(&index, &rn) == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rn << 8));
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_RM_RN:
+      {
+        int index, rm, rn;
+
+        index = s_parser_source_index;
+        if (_sh2_parse_gpr(&index, &rm) == FAILED)
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_gpr(&index, &rn) == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rn << 8) | (rm << 4));
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_IMM8_RN:
+      {
+        int index, value, result_type, rn;
+        char label[MAX_NAME_LENGTH + 1];
+
+        index = s_parser_source_index;
+        if (_sh2_parse_immediate(&index, &value, &result_type, label) == FAILED)
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_gpr(&index, &rn) == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        if (_sh2_emit_low8(s_instruction_tmp->hex | (rn << 8), value, result_type, label) == FAILED)
+          return FAILED;
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_IMM8_R0:
+      {
+        int index, value, result_type, rn;
+        char label[MAX_NAME_LENGTH + 1];
+
+        index = s_parser_source_index;
+        if (_sh2_parse_immediate(&index, &value, &result_type, label) == FAILED)
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_gpr(&index, &rn) == FAILED)
+          break;
+        if (rn != 0)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        if (_sh2_emit_low8(s_instruction_tmp->hex, value, result_type, label) == FAILED)
+          return FAILED;
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_IMM8_GBR_R0:
+      {
+        int index, value, result_type;
+        char label[MAX_NAME_LENGTH + 1];
+
+        index = s_parser_source_index;
+        if (_sh2_parse_immediate(&index, &value, &result_type, label) == FAILED)
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_at_r0_gbr(&index) == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        if (_sh2_emit_low8(s_instruction_tmp->hex, value, result_type, label) == FAILED)
+          return FAILED;
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_IMM8:
+      {
+        int index, value, result_type;
+        char label[MAX_NAME_LENGTH + 1];
+
+        index = s_parser_source_index;
+        if (_sh2_parse_immediate(&index, &value, &result_type, label) == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        if (_sh2_emit_low8(s_instruction_tmp->hex, value, result_type, label) == FAILED)
+          return FAILED;
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_DISP8_PC_RN:
+    case SH2_MODE_DISP8_PC_R0:
+      {
+        int index, value, result_type, rn, scale, encoded;
+        char label[MAX_NAME_LENGTH + 1];
+
+        index = s_parser_source_index;
+        if (_sh2_parse_at_disp_named_reg(&index, &value, &result_type, label, "PC") == FAILED)
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_gpr(&index, &rn) == FAILED)
+          break;
+        if (s_instruction_tmp->type == SH2_MODE_DISP8_PC_R0 && rn != 0)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+
+        scale = ((s_instruction_tmp->hex & 0xFF00) == 0x9000) ? 2 : 4;
+        if (result_type == INPUT_NUMBER_ADDRESS_LABEL) {
+          _output_assembled_instruction(s_instruction_tmp, "k%d d%d @%d %s ", g_active_file_info_last->line_current, ((s_instruction_tmp->hex | (rn << 8)) >> 8) & 0xFF, scale, label);
+          return SUCCEEDED;
+        }
+        if (result_type != SUCCEEDED)
+          return FAILED;
+        encoded = _sh2_encode_disp8(value, scale);
+        if (encoded < 0)
+          return FAILED;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rn << 8) | encoded);
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_DISP8_GBR_R0:
+      {
+        int index, value, result_type, rn, scale, encoded;
+        char label[MAX_NAME_LENGTH + 1];
+
+        index = s_parser_source_index;
+        if (_sh2_parse_at_disp_named_reg(&index, &value, &result_type, label, "GBR") == FAILED)
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_gpr(&index, &rn) == FAILED)
+          break;
+        if (rn != 0)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+
+        scale = ((s_instruction_tmp->hex & 0xFF00) == 0xC500) ? 2 : (((s_instruction_tmp->hex & 0xFF00) == 0xC600) ? 4 : 1);
+        if (result_type == INPUT_NUMBER_ADDRESS_LABEL)
+          return FAILED;
+        if (result_type != SUCCEEDED)
+          return FAILED;
+        encoded = _sh2_encode_disp8(value, scale);
+        if (encoded < 0)
+          return FAILED;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | encoded);
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_R0_DISP8_GBR:
+      {
+        int index, value, result_type, rn, scale, encoded;
+        char label[MAX_NAME_LENGTH + 1];
+
+        index = s_parser_source_index;
+        if (_sh2_parse_gpr(&index, &rn) == FAILED)
+          break;
+        if (rn != 0)
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_at_disp_named_reg(&index, &value, &result_type, label, "GBR") == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+
+        scale = ((s_instruction_tmp->hex & 0xFF00) == 0xC100) ? 2 : (((s_instruction_tmp->hex & 0xFF00) == 0xC200) ? 4 : 1);
+        if (result_type == INPUT_NUMBER_ADDRESS_LABEL)
+          return FAILED;
+        if (result_type != SUCCEEDED)
+          return FAILED;
+        encoded = _sh2_encode_disp8(value, scale);
+        if (encoded < 0)
+          return FAILED;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | encoded);
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_DISP4_RM_R0:
+    case SH2_MODE_DISP4_RM_RN:
+      {
+        int index, value, result_type, rm, rn, scale, encoded;
+        char label[MAX_NAME_LENGTH + 1];
+
+        index = s_parser_source_index;
+        if (_sh2_parse_at_disp_gpr(&index, &value, &result_type, label, &rm) == FAILED)
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_gpr(&index, &rn) == FAILED)
+          break;
+        if (s_instruction_tmp->type == SH2_MODE_DISP4_RM_R0 && rn != 0)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        if (result_type != SUCCEEDED)
+          return FAILED;
+        scale = (s_instruction_tmp->type == SH2_MODE_DISP4_RM_RN) ? 4 : (((s_instruction_tmp->hex & 0xFF00) == 0x8500) ? 2 : 1);
+        encoded = _sh2_encode_disp4(value, scale);
+        if (encoded < 0)
+          return FAILED;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rn << 8) | (rm << 4) | encoded);
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_R0_DISP4_RN:
+    case SH2_MODE_RM_DISP4_RN:
+      {
+        int index, value, result_type, rm, rn, scale, encoded;
+        char label[MAX_NAME_LENGTH + 1];
+
+        index = s_parser_source_index;
+        if (_sh2_parse_gpr(&index, &rm) == FAILED)
+          break;
+        if (s_instruction_tmp->type == SH2_MODE_R0_DISP4_RN && rm != 0)
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_at_disp_gpr(&index, &value, &result_type, label, &rn) == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        if (result_type != SUCCEEDED)
+          return FAILED;
+        scale = (s_instruction_tmp->type == SH2_MODE_RM_DISP4_RN) ? 4 : (((s_instruction_tmp->hex & 0xFF00) == 0x8100) ? 2 : 1);
+        encoded = _sh2_encode_disp4(value, scale);
+        if (encoded < 0)
+          return FAILED;
+        if (s_instruction_tmp->type == SH2_MODE_R0_DISP4_RN)
+          _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rn << 4) | encoded);
+        else
+          _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rn << 8) | (rm << 4) | encoded);
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_AT_RM_RN:
+    case SH2_MODE_AT_RM_INC_RN:
+      {
+        int index, rm, rn;
+
+        index = s_parser_source_index;
+        if (s_instruction_tmp->type == SH2_MODE_AT_RM_RN) {
+          if (_sh2_parse_at_gpr(&index, &rm) == FAILED)
+            break;
+        }
+        else {
+          if (_sh2_parse_at_gpr_plus(&index, &rm) == FAILED)
+            break;
+        }
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_gpr(&index, &rn) == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rn << 8) | (rm << 4));
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_RM_AT_RN:
+    case SH2_MODE_RM_AT_DEC_RN:
+      {
+        int index, rm, rn;
+
+        index = s_parser_source_index;
+        if (_sh2_parse_gpr(&index, &rm) == FAILED)
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (s_instruction_tmp->type == SH2_MODE_RM_AT_RN) {
+          if (_sh2_parse_at_gpr(&index, &rn) == FAILED)
+            break;
+        }
+        else {
+          if (_sh2_parse_at_minus_gpr(&index, &rn) == FAILED)
+            break;
+        }
+        if (_sh2_finish(index) == FAILED)
+          break;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rn << 8) | (rm << 4));
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_AT_R0_RM_RN:
+      {
+        int index, rm, rn;
+
+        index = s_parser_source_index;
+        if (_sh2_parse_at_r0_gpr(&index, &rm) == FAILED)
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_gpr(&index, &rn) == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rn << 8) | (rm << 4));
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_RM_AT_R0_RN:
+      {
+        int index, rm, rn;
+
+        index = s_parser_source_index;
+        if (_sh2_parse_gpr(&index, &rm) == FAILED)
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_at_r0_gpr(&index, &rn) == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rn << 8) | (rm << 4));
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_DISP8_BRANCH:
+      {
+        int index, value, result_type;
+        char label[MAX_NAME_LENGTH + 1];
+
+        index = s_parser_source_index;
+        if (_sh2_parse_number(&index, &value, &result_type, label) == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        if (result_type == INPUT_NUMBER_ADDRESS_LABEL) {
+          _output_assembled_instruction(s_instruction_tmp, "k%d d%d l%s ", g_active_file_info_last->line_current, (s_instruction_tmp->hex >> 8) & 0xFF, label);
+          return SUCCEEDED;
+        }
+        if (result_type != SUCCEEDED)
+          return FAILED;
+        if (value < -128 || value > 127) {
+          print_error(ERROR_NUM, "Out of 8-bit branch displacement range.\n");
+          return FAILED;
+        }
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (value & 0xFF));
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_DISP12_BRANCH:
+      {
+        int index, value, result_type;
+        char label[MAX_NAME_LENGTH + 1];
+
+        index = s_parser_source_index;
+        if (_sh2_parse_number(&index, &value, &result_type, label) == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        if (result_type == INPUT_NUMBER_ADDRESS_LABEL) {
+          _output_assembled_instruction(s_instruction_tmp, "k%d m%d %s ", g_active_file_info_last->line_current, (s_instruction_tmp->hex >> 12) & 0x0F, label);
+          return SUCCEEDED;
+        }
+        if (result_type != SUCCEEDED)
+          return FAILED;
+        if (value < -2048 || value > 2047) {
+          print_error(ERROR_NUM, "Out of 12-bit branch displacement range.\n");
+          return FAILED;
+        }
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (value & 0x0FFF));
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_AT_RM_BRANCH:
+      {
+        int index, rm;
+
+        index = s_parser_source_index;
+        if (_sh2_parse_at_gpr(&index, &rm) == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rm << 8));
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_RM_REG:
+      {
+        int index, rm, reg;
+
+        index = s_parser_source_index;
+        if (_sh2_parse_gpr(&index, &rm) == FAILED)
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_system_register(&index, &reg) == FAILED)
+          break;
+        if (reg != _sh2_expected_register(s_instruction_tmp->hex))
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rm << 8));
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_AT_RM_INC_REG:
+      {
+        int index, rm, reg;
+
+        index = s_parser_source_index;
+        if (_sh2_parse_at_gpr_plus(&index, &rm) == FAILED)
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_system_register(&index, &reg) == FAILED)
+          break;
+        if (reg != _sh2_expected_register(s_instruction_tmp->hex))
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rm << 8));
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_REG_RN:
+      {
+        int index, rn, reg;
+
+        index = s_parser_source_index;
+        if (_sh2_parse_system_register(&index, &reg) == FAILED)
+          break;
+        if (reg != _sh2_expected_register(s_instruction_tmp->hex))
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_gpr(&index, &rn) == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rn << 8));
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_REG_AT_DEC_RN:
+      {
+        int index, rn, reg;
+
+        index = s_parser_source_index;
+        if (_sh2_parse_system_register(&index, &reg) == FAILED)
+          break;
+        if (reg != _sh2_expected_register(s_instruction_tmp->hex))
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_at_minus_gpr(&index, &rn) == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rn << 8));
+        return SUCCEEDED;
+      }
+
+    case SH2_MODE_MAC:
+      {
+        int index, rm, rn;
+
+        index = s_parser_source_index;
+        if (_sh2_parse_at_gpr_plus(&index, &rm) == FAILED)
+          break;
+        if (_sh2_parse_comma(&index) == FAILED)
+          break;
+        if (_sh2_parse_at_gpr_plus(&index, &rn) == FAILED)
+          break;
+        if (_sh2_finish(index) == FAILED)
+          break;
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", s_instruction_tmp->hex | (rn << 8) | (rm << 4));
+        return SUCCEEDED;
+      }
+
+      /*************************************************************************************************/
+      /* </SH-2> */
+      /*************************************************************************************************/
+
+#endif
 
 #if defined(GB)
 
@@ -1394,12 +2792,12 @@ int evaluate_token(void) {
       
 #endif
  
-#if defined(Z80) || defined(Z80N)
+#if defined(Z80) || defined(Z80N) || defined(EZ80)
 
       /*************************************************************************************************/
       /*************************************************************************************************/
       /*************************************************************************************************/
-      /* <Z80/Z80N> */
+      /* <Z80/Z80N/eZ80> */
       /*************************************************************************************************/
       /*************************************************************************************************/
       /*************************************************************************************************/
@@ -1483,6 +2881,15 @@ int evaluate_token(void) {
           g_source_index = y;
           if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
             return FAILED;
+#if defined(EZ80)
+          if (z == SUCCEEDED && _ez80_use_24bit_immediate() == YES) {
+            if (g_parsed_int > 16777215 || g_parsed_int < -8388608) {
+              print_error(ERROR_NUM, "Out of 24-bit range.\n");
+              return FAILED;
+            }
+          }
+          else
+#endif
           if (z == SUCCEEDED && (g_parsed_int > 65535 || g_parsed_int < -32768)) {
             print_error(ERROR_NUM, "Out of 16-bit range.\n");
             return FAILED;
@@ -1490,12 +2897,25 @@ int evaluate_token(void) {
           
           for (x++; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
             if (IS_THE_MATCH_COMPLETE(x)) {
+#if defined(EZ80)
+              if (_ez80_use_24bit_immediate() == YES) {
+                if (z == SUCCEEDED)
+                  _output_assembled_instruction(s_instruction_tmp, "d%d z%d ", s_instruction_tmp->hex, g_parsed_int);
+                else if (z == INPUT_NUMBER_ADDRESS_LABEL)
+                  _output_assembled_instruction(s_instruction_tmp, "k%d d%d q%s ", g_active_file_info_last->line_current, s_instruction_tmp->hex, g_label);
+                else
+                  _output_assembled_instruction(s_instruction_tmp, "d%d T%d ", s_instruction_tmp->hex, g_latest_stack);
+              }
+              else
+#endif
+              {
               if (z == SUCCEEDED)
                 _output_assembled_instruction(s_instruction_tmp, "d%d y%d ", s_instruction_tmp->hex, g_parsed_int);
               else if (z == INPUT_NUMBER_ADDRESS_LABEL)
                 _output_assembled_instruction(s_instruction_tmp, "k%d d%d r%s ", g_active_file_info_last->line_current, s_instruction_tmp->hex, g_label);
               else
                 _output_assembled_instruction(s_instruction_tmp, "d%d C%d ", s_instruction_tmp->hex, g_latest_stack);
+              }
               
               g_source_index = s_parser_source_index;
               return SUCCEEDED;
@@ -1644,12 +3064,30 @@ int evaluate_token(void) {
                 }
               }
               else {
+#if defined(EZ80)
+                if (_ez80_use_24bit_immediate() == YES) {
+                  if (z == SUCCEEDED) {
+                    if (g_parsed_int > 16777215 || g_parsed_int < -8388608) {
+                      print_error(ERROR_NUM, "Out of 24-bit range.\n");
+                      return FAILED;
+                    }
+                    _output_assembled_instruction(s_instruction_tmp, "y%d z%d ", s_instruction_tmp->hex, g_parsed_int);
+                  }
+                  else if (z == INPUT_NUMBER_ADDRESS_LABEL)
+                    _output_assembled_instruction(s_instruction_tmp, "k%d y%d q%s ", g_active_file_info_last->line_current, s_instruction_tmp->hex, g_label);
+                  else
+                    _output_assembled_instruction(s_instruction_tmp, "y%d T%d ", s_instruction_tmp->hex, g_latest_stack);
+                }
+                else
+#endif
+                {
                 if (z == SUCCEEDED)
                   _output_assembled_instruction(s_instruction_tmp, "y%d y%d ", s_instruction_tmp->hex, g_parsed_int);
                 else if (z == INPUT_NUMBER_ADDRESS_LABEL)
                   _output_assembled_instruction(s_instruction_tmp, "k%d y%d r%s ", g_active_file_info_last->line_current, s_instruction_tmp->hex, g_label);
                 else
                   _output_assembled_instruction(s_instruction_tmp, "y%d C%d ", s_instruction_tmp->hex, g_latest_stack);
+                }
               }
               
               g_source_index = s_parser_source_index;
@@ -1879,7 +3317,7 @@ int evaluate_token(void) {
       /*************************************************************************************************/
       /*************************************************************************************************/
       /*************************************************************************************************/
-      /* </Z80/Z80N> */
+      /* </Z80/Z80N/eZ80> */
       /*************************************************************************************************/
       /*************************************************************************************************/
       /*************************************************************************************************/
@@ -2005,8 +3443,6 @@ int evaluate_token(void) {
       break;
       
     case 4:
-      if (g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
-        break;
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
           y = g_source_index;
@@ -2017,6 +3453,8 @@ int evaluate_token(void) {
           
           if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
             return FAILED;
+          if ((g_operand_hint == HINT_NONE || (g_operand_hint == HINT_8BIT && g_operand_hint_type == HINT_TYPE_DEDUCED)) && g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
+            break;
           if (g_operand_hint == HINT_16BIT)
             break;
           if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < -128)) {
@@ -2081,8 +3519,6 @@ int evaluate_token(void) {
       
     case 6:
     case 1:
-      if (g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
-        break;
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
           y = g_source_index;
@@ -2094,6 +3530,8 @@ int evaluate_token(void) {
           if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
             return FAILED;
           if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < -128))
+            break;
+          if ((g_operand_hint == HINT_NONE || (g_operand_hint == HINT_8BIT && g_operand_hint_type == HINT_TYPE_DEDUCED)) && g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
             break;
           if (g_operand_hint == HINT_16BIT)
             break;
@@ -2178,8 +3616,6 @@ int evaluate_token(void) {
       break;
       
     case 4:
-      if (g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
-        break;
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
           y = g_source_index;
@@ -2191,6 +3627,8 @@ int evaluate_token(void) {
           if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
             return FAILED;
           if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < -128))
+            break;
+          if ((g_operand_hint == HINT_NONE || (g_operand_hint == HINT_8BIT && g_operand_hint_type == HINT_TYPE_DEDUCED)) && g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
             break;
           if (g_operand_hint == HINT_16BIT)
             break;
@@ -2326,8 +3764,6 @@ int evaluate_token(void) {
       
     case 6:
     case 1:
-      if (g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
-        break;
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
           y = g_source_index;
@@ -2339,6 +3775,8 @@ int evaluate_token(void) {
           if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
             return FAILED;
           if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < -128))
+            break;
+          if ((g_operand_hint == HINT_NONE || (g_operand_hint == HINT_8BIT && g_operand_hint_type == HINT_TYPE_DEDUCED)) && g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
             break;
           if (g_operand_hint == HINT_16BIT)
             break;
@@ -2423,8 +3861,6 @@ int evaluate_token(void) {
       break;
       
     case 4:
-      if (g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
-        break;
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
           y = g_source_index;
@@ -2436,6 +3872,8 @@ int evaluate_token(void) {
           if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
             return FAILED;
           if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < -128))
+            break;
+          if ((g_operand_hint == HINT_NONE || (g_operand_hint == HINT_8BIT && g_operand_hint_type == HINT_TYPE_DEDUCED)) && g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
             break;
           if (g_operand_hint == HINT_16BIT)
             break;
@@ -2665,8 +4103,6 @@ int evaluate_token(void) {
       break;
 
     case 2:
-      if (g_xbit_size > 16 && s_instruction_tmp->skip_xbit == 1)
-        break;
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == '?') {
           y = g_source_index;
@@ -2676,6 +4112,10 @@ int evaluate_token(void) {
           g_source_index = y;
           if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
             return FAILED;
+          if (g_operand_hint == HINT_24BIT && g_operand_hint_type == HINT_TYPE_GIVEN)
+            break;
+          if ((g_operand_hint == HINT_NONE || (g_operand_hint <= HINT_16BIT && g_operand_hint_type == HINT_TYPE_DEDUCED)) && g_xbit_size > 16 && s_instruction_tmp->skip_xbit == 1)
+            break;
           if (g_operand_hint == HINT_24BIT && s_instruction_tmp->skip_xbit == 1)
             break;
           if (z == SUCCEEDED && (g_parsed_int < -32768 || g_parsed_int > 65535)) {
@@ -2905,17 +4345,25 @@ int evaluate_token(void) {
         
               /* REP */
               if (s_instruction_tmp->skip_xbit == 0) {
-                if (g_parsed_int & 16)
+                if (g_parsed_int & 16) {
                   g_index_size = 16;
-                if (g_parsed_int & 32)
+                  g_index_set_by_rep_sep = 1;
+                }
+                if (g_parsed_int & 32) {
                   g_accu_size = 16;
+                  g_accu_set_by_rep_sep = 1;
+                }
               }
               /* SEP */
               else {
-                if (g_parsed_int & 16)
+                if (g_parsed_int & 16) {
                   g_index_size = 8;
-                if (g_parsed_int & 32)
+                  g_index_set_by_rep_sep = 1;
+                }
+                if (g_parsed_int & 32) {
                   g_accu_size = 8;
+                  g_accu_set_by_rep_sep = 1;
+                }
               }
         
               g_source_index = s_parser_source_index;
@@ -3063,8 +4511,6 @@ int evaluate_token(void) {
       break;
 
     case 0xA:
-      if (g_xbit_size > 8 && s_instruction_tmp->skip_xbit == 2)
-        break;
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
           y = g_source_index;
@@ -3074,6 +4520,8 @@ int evaluate_token(void) {
           g_source_index = y;
           if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
             return FAILED;
+          if ((g_operand_hint == HINT_NONE || (g_operand_hint == HINT_8BIT && g_operand_hint_type == HINT_TYPE_DEDUCED)) && g_xbit_size > 8 && s_instruction_tmp->skip_xbit == 2)
+            break;
           if ((g_operand_hint == HINT_16BIT || g_operand_hint == HINT_24BIT) && s_instruction_tmp->skip_xbit == 2)
             break;
           if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < -128)) {
@@ -3144,12 +4592,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -3193,12 +4641,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -3214,21 +4662,26 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_y1, &register_y2, &register_y_mode, &data_y, &data_type_y, label_y, NO) == FAILED)
           break;
 
+        if (register_y_mode == B8(00000111) && register_y1 == B8(00000100))
+          immediate = YES;
+
+        /*
         if (register_y_mode == B8(00000111) && register_y1 == B8(00000100)) {
           immediate = YES;
 
-          /* is immediate value [1, 8]? */
+          // is immediate value [1, 8]?
           if (mode == MC68000_MODE_ALL && data_type_y == SUCCEEDED && data_y >= 1 && data_y <= 8) {
             mode = MC68000_MODE_Q;
 
-            /* yes, switch add -> addq */
+            // yes, switch add -> addq
             if (opcode == B16(11010000, 00000000))
               opcode = B16(01010000, 00000000);
-            /* sub -> subq */
+            // sub -> subq
             else if (opcode == B16(10010000, 00000000))
               opcode = B16(01010001, 00000000);            
           }
         }
+        */
         
         /* immediate ea size checks */
         if (data_type_y == SUCCEEDED && immediate == YES) {
@@ -3243,13 +4696,13 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_x1, &register_x2, &register_x_mode, &data_x, &data_type_x, label_x, NO) == FAILED)
           break;
 
-	/* source or target must be Dn */
-	if (immediate == NO && mode == MC68000_MODE_ALL && register_x_mode != B8(00000001)) {
-	  if (register_x_mode != B8(00000000) && register_y_mode != B8(00000000)) {
-	    print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	    return FAILED;
-	  }
-	}
+        /* source or target must be Dn */
+        if (immediate == NO && mode == MC68000_MODE_ALL && register_x_mode != B8(00000001)) {
+          if (register_x_mode != B8(00000000) && register_y_mode != B8(00000000)) {
+            print_error(ERROR_NUM, "Invalid addressing mode.\n");
+            return FAILED;
+          }
+        }
         /* no .B with An */
         if (register_x_mode == B8(00000001) || register_y_mode == B8(00000001)) {
           if (size == B8(00000000)) {
@@ -3402,12 +4855,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -3439,72 +4892,72 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_x1, &register_x2, &register_x_mode, &data_x, &data_type_x, label_x, YES) == FAILED)
           break;
 
-	if (immediate) {
-	  if (register_x_mode == B8(00001000)) {
-	    /* #<data>, CCR */
+        if (immediate) {
+          if (register_x_mode == B8(00001000)) {
+            /* #<data>, CCR */
 
-	    /* not .b? */
-	    if (size != B8(00000000)) {
-	      print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	      return FAILED;
-	    }
+            /* not .b? */
+            if (size != B8(00000000)) {
+              print_error(ERROR_NUM, "Invalid addressing mode.\n");
+              return FAILED;
+            }
 
-	    /* andi */
-	    if (opcode == B16(00000010, 00000000))
-	      opcode = B16(00000010, 00111100);
+            /* andi */
+            if (opcode == B16(00000010, 00000000))
+              opcode = B16(00000010, 00111100);
             /* ori */
             else if (opcode == B16(00000000, 00000000))
-	      opcode = B16(00000000, 00111100);
+              opcode = B16(00000000, 00111100);
             
-	    /* emit opcode */
-	    _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
+            /* emit opcode */
+            _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
+            
+            /* emit extra data */
+            _mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
 
-	    /* emit extra data */
-	    _mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
+            g_source_index = s_parser_source_index;
 
-	    g_source_index = s_parser_source_index;
+            return SUCCEEDED;
+          }
+          else if (register_x_mode == B8(00001001)) {
+            /* #<data>, SR */
 
-	    return SUCCEEDED;
-	  }
-	  else if (register_x_mode == B8(00001001)) {
-	    /* #<data>, SR */
+            /* not .w? */
+            if (size != B8(00000001)) {
+              print_error(ERROR_NUM, "Invalid addressing mode.\n");
+              return FAILED;
+            }
 
-	    /* not .w? */
-	    if (size != B8(00000001)) {
-	      print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	      return FAILED;
-	    }
-
-	    /* andi */
-	    if (opcode == B16(00000010, 00000000))
-	      opcode = B16(00000010, 01111100);
+            /* andi */
+            if (opcode == B16(00000010, 00000000))
+              opcode = B16(00000010, 01111100);
             /* ori */
-	    else if (opcode == B16(00000000, 00000000))
-	      opcode = B16(00000000, 01111100);
+            else if (opcode == B16(00000000, 00000000))
+              opcode = B16(00000000, 01111100);
             
-	    /* emit opcode */
-	    _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
+            /* emit opcode */
+            _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
 
-	    /* emit extra data */
-	    _mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
+            /* emit extra data */
+            _mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
 
-	    g_source_index = s_parser_source_index;
+            g_source_index = s_parser_source_index;
 
-	    return SUCCEEDED;
-	  }
-	}
+            return SUCCEEDED;
+          }
+        }
 
-	/* source or target must be Dn */
-	if (immediate == NO) {
-	  if (register_x_mode != B8(00000000) && register_y_mode != B8(00000000)) {
-	    print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	    return FAILED;
-	  }
-	}
+        /* source or target must be Dn */
+        if (immediate == NO) {
+          if (register_x_mode != B8(00000000) && register_y_mode != B8(00000000)) {
+            print_error(ERROR_NUM, "Invalid addressing mode.\n");
+            return FAILED;
+          }
+        }
         /* no An */
         if (register_x_mode == B8(00000001) || register_y_mode == B8(00000001)) {
-	  print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	  return FAILED;
+          print_error(ERROR_NUM, "Invalid addressing mode.\n");
+          return FAILED;
         }
         /* PC relative ea cannot be destination */
         if ((register_x_mode == B8(00000111) && register_x1 == B8(00000010)) ||
@@ -3593,12 +5046,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -3615,25 +5068,25 @@ int evaluate_token(void) {
 
         if (register_y_mode == B8(00000111) && register_y1 == B8(00000100))
           immediate = YES;
-	else if (register_y_mode != B8(00000000)) {
-	  /* <ea> */
+        else if (register_y_mode != B8(00000000)) {
+          /* <ea> */
 
-	  /* needs to be .w */
-	  if (size != B8(00000001)) {
-	    print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	    return FAILED;
-	  }
-	  /* no An */
-	  if (register_y_mode == B8(00000001)) {
-	    print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	    return FAILED;
-	  }
-	  /* PC relative ea cannot be source */
-	  if ((register_y_mode == B8(00000111) && register_y1 == B8(00000010)) ||
-	      (register_y_mode == B8(00000111) && register_y1 == B8(00000011))) {
-	    print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	    return FAILED;
-	  }
+          /* needs to be .w */
+          if (size != B8(00000001)) {
+            print_error(ERROR_NUM, "Invalid addressing mode.\n");
+            return FAILED;
+          }
+          /* no An */
+          if (register_y_mode == B8(00000001)) {
+            print_error(ERROR_NUM, "Invalid addressing mode.\n");
+            return FAILED;
+          }
+          /* PC relative ea cannot be source */
+          if ((register_y_mode == B8(00000111) && register_y1 == B8(00000010)) ||
+              (register_y_mode == B8(00000111) && register_y1 == B8(00000011))) {
+            print_error(ERROR_NUM, "Invalid addressing mode.\n");
+            return FAILED;
+          }
 
           /* lsl/lsr? */
           if (opcode == B16(11100001, 00001000))
@@ -3651,23 +5104,23 @@ int evaluate_token(void) {
           else if (opcode == B16(11100000, 00010000))
             opcode = B16(11100100, 11000000);
           
-	  /* size */
-	  opcode |= B8(11000000);
+          /* size */
+          opcode |= B8(11000000);
 
-	  /* set ea */
-	  opcode |= register_y_mode << 3;
-	  opcode |= register_y1;
+          /* set ea */
+          opcode |= register_y_mode << 3;
+          opcode |= register_y1;
 
-	  /* emit opcode */
-	  _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
+          /* emit opcode */
+          _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
 
-	  /* emit extra data */
-	  _mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
+          /* emit extra data */
+          _mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
 
-	  g_source_index = s_parser_source_index;
-
-	  return SUCCEEDED;
-	}
+          g_source_index = s_parser_source_index;
+          
+          return SUCCEEDED;
+        }
 
         /* immediate ea size checks */
         if (data_type_y == SUCCEEDED && immediate == YES) {
@@ -3682,18 +5135,18 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_x1, &register_x2, &register_x_mode, &data_x, &data_type_x, label_x, YES) == FAILED)
           break;
 
-	/* if source is not immediate then it must be Dn */
-	if (immediate == NO && register_y_mode != B8(00000000)) {
-	  print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	  return FAILED;
-	}
-	/* target must be Dn */
-	if (register_x_mode != B8(00000000)) {
-	  print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	  return FAILED;
-	}
+        /* if source is not immediate then it must be Dn */
+        if (immediate == NO && register_y_mode != B8(00000000)) {
+          print_error(ERROR_NUM, "Invalid addressing mode.\n");
+          return FAILED;
+        }
+        /* target must be Dn */
+        if (register_x_mode != B8(00000000)) {
+          print_error(ERROR_NUM, "Invalid addressing mode.\n");
+          return FAILED;
+        }
 
-	if (immediate == YES) {
+        if (immediate == YES) {
           /* actually here we encode the data (1-8) */
           if (data_type_y != SUCCEEDED) {
             print_error(ERROR_NUM, "The value [1, 8] must be known at this stage, it cannot be postponed to the linker.\n");
@@ -3707,20 +5160,20 @@ int evaluate_token(void) {
           /* 8 here is encoded as 0! */
           if (data_y < 8)
             opcode |= data_y << 9;
-	}
-	else {
-	  /* encode the source register number */
-	  opcode |= register_y1 << 9;
-	  opcode |= 1 << 5;
-	}
+        }
+        else {
+          /* encode the source register number */
+          opcode |= register_y1 << 9;
+          opcode |= 1 << 5;
+        }
 
-	/* size */
-	opcode |= size << 6;
+        /* size */
+        opcode |= size << 6;
         
         /* set destination register */
-	opcode |= register_x1;
+        opcode |= register_x1;
         
-	/* emit opcode */
+        /* emit opcode */
         _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
 
         g_source_index = s_parser_source_index;
@@ -3736,12 +5189,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -3753,72 +5206,72 @@ int evaluate_token(void) {
         size = s_instruction_tmp->size;
         opcode = s_instruction_tmp->hex;
 
-	backup = g_source_index;
-	g_source_index = s_parser_source_index;
-	res = input_number();
-	s_parser_source_index = g_source_index;
-	g_source_index = backup;
+        backup = g_source_index;
+        g_source_index = s_parser_source_index;
+        res = input_number();
+        s_parser_source_index = g_source_index;
+        g_source_index = backup;
 
-	if (!(res == SUCCEEDED || res == INPUT_NUMBER_ADDRESS_LABEL || res == INPUT_NUMBER_STACK))
-	  return FAILED;
+        if (!(res == SUCCEEDED || res == INPUT_NUMBER_ADDRESS_LABEL || res == INPUT_NUMBER_STACK))
+          return FAILED;
 
-	if (res == INPUT_NUMBER_STACK) {
-	  /* let's configure the stack so that all label references inside are relative */
-	  struct stack *stack = find_stack_calculation(g_latest_stack, YES);
-	  if (stack == NULL)
-	    return FAILED;
+        if (res == INPUT_NUMBER_STACK) {
+          /* let's configure the stack so that all label references inside are relative */
+          struct stack *stack = find_stack_calculation(g_latest_stack, YES);
+          if (stack == NULL)
+            return FAILED;
     
-	  stack->relative_references = 1;
-	}
+          stack->relative_references = 1;
+        }
 
-	/* emit opcode */
-	_output_assembled_instruction(s_instruction_tmp, "d%d ", opcode >> 8);
+        /* emit opcode */
+        _output_assembled_instruction(s_instruction_tmp, "d%d ", opcode >> 8);
 
-	if (size == B8(00000000) || g_operand_hint == HINT_8BIT) {
-	  /* 8-bit */
-	  if (res == INPUT_NUMBER_ADDRESS_LABEL)
-	    _output_assembled_instruction(s_instruction_tmp, "k%d R%s ", g_active_file_info_last->line_current, g_label);
-	  else if (res == INPUT_NUMBER_STACK)
-	    _output_assembled_instruction(s_instruction_tmp, "c%d ", g_latest_stack);
-	  else
-	    _output_assembled_instruction(s_instruction_tmp, "d%d ", g_parsed_int);
-	}
-	else {
-	  /* 16-bit */
-	  _output_assembled_instruction(s_instruction_tmp, "d0 ");
-	  
-	  if (res == INPUT_NUMBER_ADDRESS_LABEL) {
-	    struct stack *stack;
-	    
-	    if (stack_create_label_stack(g_label) == FAILED)
-	      return FAILED;
-	    if (stack_add_offset_plus_n_to_stack(g_latest_stack, 2) == FAILED)
-	      return FAILED;
-
-	    /* let's configure the stack so that all label references inside are relative */
-	    stack = find_stack_calculation(g_latest_stack, YES);
-	    if (stack == NULL)
-	      return FAILED;
+        if (size == B8(00000000) || g_operand_hint == HINT_8BIT) {
+          /* 8-bit */
+          if (res == INPUT_NUMBER_ADDRESS_LABEL)
+            _output_assembled_instruction(s_instruction_tmp, "k%d R%s ", g_active_file_info_last->line_current, g_label);
+          else if (res == INPUT_NUMBER_STACK)
+            _output_assembled_instruction(s_instruction_tmp, "c%d ", g_latest_stack);
+          else
+            _output_assembled_instruction(s_instruction_tmp, "d%d ", g_parsed_int);
+        }
+        else {
+          /* 16-bit */
+          _output_assembled_instruction(s_instruction_tmp, "d0 ");
     
-	    stack->relative_references = 1;
-	  
-	    _output_assembled_instruction(s_instruction_tmp, "C%d ", g_latest_stack);
-	  }
-	  else if (res == INPUT_NUMBER_STACK) {
-	    if (does_stack_contain_one_label(g_latest_stack) == YES) {
-	      if (stack_add_offset_plus_n_to_stack(g_latest_stack, 2) == FAILED)
-		return FAILED;
-	    }
+          if (res == INPUT_NUMBER_ADDRESS_LABEL) {
+            struct stack *stack;
+      
+            if (stack_create_label_stack(g_label) == FAILED)
+              return FAILED;
+            if (stack_add_offset_plus_n_to_stack(g_latest_stack, 2) == FAILED)
+              return FAILED;
 
-	    _output_assembled_instruction(s_instruction_tmp, "C%d ", g_latest_stack);
-	  }
-	  else
-	    _output_assembled_instruction(s_instruction_tmp, "y%d ", g_parsed_int);
-	}
+            /* let's configure the stack so that all label references inside are relative */
+            stack = find_stack_calculation(g_latest_stack, YES);
+            if (stack == NULL)
+              return FAILED;
+    
+            stack->relative_references = 1;
+    
+            _output_assembled_instruction(s_instruction_tmp, "C%d ", g_latest_stack);
+          }
+          else if (res == INPUT_NUMBER_STACK) {
+            if (does_stack_contain_one_label(g_latest_stack) == YES) {
+              if (stack_add_offset_plus_n_to_stack(g_latest_stack, 2) == FAILED)
+                return FAILED;
+            }
 
-	g_source_index = s_parser_source_index;
-	
-	return SUCCEEDED;
+            _output_assembled_instruction(s_instruction_tmp, "C%d ", g_latest_stack);
+          }
+          else
+            _output_assembled_instruction(s_instruction_tmp, "y%d ", g_parsed_int);
+        }
+
+        g_source_index = s_parser_source_index;
+        
+        return SUCCEEDED;
       }
       break;
 
@@ -3826,17 +5279,17 @@ int evaluate_token(void) {
       /* BCHG, BCLR, BSET, BTST */
       {
         int done = NO, register_y1 = 0, register_y2 = 0, register_y_mode = 0, register_x1 = 0, register_x2 = 0, register_x_mode = 0, opcode;
-        int data_y = 0, data_type_y = FAILED, data_x = 0, data_type_x = FAILED, size, immediate = NO;
+        int data_y = 0, data_type_y = FAILED, data_x = 0, data_type_x = FAILED, size, requested_size, immediate = NO;
         char label_y[MAX_NAME_LENGTH + 1], label_x[MAX_NAME_LENGTH + 1];
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -3846,16 +5299,17 @@ int evaluate_token(void) {
           break;
 
         opcode = s_instruction_tmp->hex;
+        requested_size = s_instruction_tmp->size;
 
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_y1, &register_y2, &register_y_mode, &data_y, &data_type_y, label_y, NO) == FAILED)
           break;
 
         if (register_y_mode == B8(00000111) && register_y1 == B8(00000100))
           immediate = YES;
-	else if (register_y_mode != B8(00000000)) {
-	  print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	  return FAILED;
-	}
+        else if (register_y_mode != B8(00000000)) {
+          print_error(ERROR_NUM, "Invalid addressing mode.\n");
+          return FAILED;
+        }
 
         if (g_buffer[s_parser_source_index] != ',')
           break;
@@ -3864,84 +5318,89 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_x1, &register_x2, &register_x_mode, &data_x, &data_type_x, label_x, NO) == FAILED)
           break;
 
-	/* no destination An */
-	if (register_x_mode == B8(00000001)) {
-	  print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	  return FAILED;
-	}
-	/* PC relative ea cannot be target */
-	if ((register_x_mode == B8(00000111) && register_x1 == B8(00000010)) ||
-	    (register_x_mode == B8(00000111) && register_x1 == B8(00000011))) {
-	  print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	  return FAILED;
-	}
-	/* no immediate target */
+        /* no destination An */
+        if (register_x_mode == B8(00000001)) {
+          print_error(ERROR_NUM, "Invalid addressing mode.\n");
+          return FAILED;
+        }
+        /* PC relative ea cannot be target */
+        if ((register_x_mode == B8(00000111) && register_x1 == B8(00000010)) ||
+            (register_x_mode == B8(00000111) && register_x1 == B8(00000011))) {
+          print_error(ERROR_NUM, "Invalid addressing mode.\n");
+          return FAILED;
+        }
+        /* no immediate target */
         if (register_x_mode == B8(00000111) && register_x1 == B8(00000100)) {
-	  print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	  return FAILED;
-	}
+          print_error(ERROR_NUM, "Invalid addressing mode.\n");
+          return FAILED;
+        }
 
-	if (immediate == YES) {
+        if (immediate == YES) {
           if (data_type_y != SUCCEEDED) {
-	    if (register_x_mode == B8(00000000))
-	      print_error(ERROR_NUM, "The value [0, 31] must be known at this stage, it cannot be postponed to the linker.\n");
-	    else
-	      print_error(ERROR_NUM, "The value [0, 7] must be known at this stage, it cannot be postponed to the linker.\n");
-	    return FAILED;
+            if (register_x_mode == B8(00000000))
+              print_error(ERROR_NUM, "The value [0, 31] must be known at this stage, it cannot be postponed to the linker.\n");
+            else
+              print_error(ERROR_NUM, "The value [0, 7] must be known at this stage, it cannot be postponed to the linker.\n");
+            return FAILED;
           }
 
-	  if (register_x_mode == B8(00000000)) {
-	    if (data_y < 0 || data_y > 31) {
-	      print_error(ERROR_NUM, "The value %d is out of range [0, 31].\n", data_y);
-	      return FAILED;
-	    }
-	  }
-	  else {
-	    if (data_y < 0 || data_y > 7) {
-	      print_error(ERROR_NUM, "The value %d is out of range [0, 7].\n", data_y);
-	      return FAILED;
-	    }
-	  }
+          if (register_x_mode == B8(00000000)) {
+            if (data_y < 0 || data_y > 31) {
+              print_error(ERROR_NUM, "The value %d is out of range [0, 31].\n", data_y);
+              return FAILED;
+            }
+          }
+          else {
+            if (data_y < 0 || data_y > 7) {
+              print_error(ERROR_NUM, "The value %d is out of range [0, 7].\n", data_y);
+              return FAILED;
+            }
+          }
 
-	  /* BCHG */
-	  if (opcode == B16(00000001, 01000000))
-	    opcode = B16(00001000, 01000000);
-	  /* BCLR */
-	  else if (opcode == B16(00000001, 10000000))
-	    opcode = B16(00001000, 10000000);
-	  /* BSET */
-	  else if (opcode == B16(00000001, 11000000))
-	    opcode = B16(00001000, 11000000);
-	  /* BTST */
-	  else if (opcode == B16(00000001, 00000000))
-	    opcode = B16(00001000, 00000000);
-	}
-	else {	  
-	  /* register */
-	  opcode |= register_y1 << 9;
-	}
+          /* BCHG */
+          if (opcode == B16(00000001, 01000000))
+            opcode = B16(00001000, 01000000);
+          /* BCLR */
+          else if (opcode == B16(00000001, 10000000))
+            opcode = B16(00001000, 10000000);
+          /* BSET */
+          else if (opcode == B16(00000001, 11000000))
+            opcode = B16(00001000, 11000000);
+          /* BTST */
+          else if (opcode == B16(00000001, 00000000))
+            opcode = B16(00001000, 00000000);
+        }
+        else {    
+          /* register */
+          opcode |= register_y1 << 9;
+        }
 
-	if (register_x_mode == B8(00000000))
-	  size = B8(00000010);
-	else
-	  size = B8(00000000);
-	
-	/* encode mode */
-	opcode |= register_x_mode << 3;
-	
+        if (register_x_mode == B8(00000000))
+          size = B8(00000010);
+        else
+          size = B8(00000000);
+
+        if (requested_size != MC68000_SIZE_DEFAULT && requested_size != size) {
+          print_error(ERROR_NUM, "Invalid operand size.\n");
+          return FAILED;
+        }
+  
+        /* encode mode */
+        opcode |= register_x_mode << 3;
+  
         /* set destination register */
-	opcode |= register_x1;
+        opcode |= register_x1;
         
-	/* emit opcode */
+        /* emit opcode */
         _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
 
-	if (immediate == YES) {
-	  /* output bit number 0-7/0-31 */
-	  _output_assembled_instruction(s_instruction_tmp, "d0 d%d ", data_y);
-	}
+        if (immediate == YES) {
+          /* output bit number 0-7/0-31 */
+          _output_assembled_instruction(s_instruction_tmp, "d0 d%d ", data_y);
+        }
 
-	/* emit extra data */
-	_mc68000_emit_extra_data(register_x_mode, register_x1, register_x2, data_type_x, data_x, label_x, size);
+        /* emit extra data */
+        _mc68000_emit_extra_data(register_x_mode, register_x1, register_x2, data_type_x, data_x, label_x, size);
 
         g_source_index = s_parser_source_index;
 
@@ -3958,12 +5417,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -3978,11 +5437,11 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_y1, &register_y2, &register_y_mode, &data_y, &data_type_y, label_y, NO) == FAILED)
           break;
 
-	/* source cannot be An */
-	if (register_y_mode == B8(00000001)) {
-	  print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	  return FAILED;
-	}
+        /* source cannot be An */
+        if (register_y_mode == B8(00000001)) {
+          print_error(ERROR_NUM, "Invalid addressing mode.\n");
+          return FAILED;
+        }
 
         if (g_buffer[s_parser_source_index] != ',')
           break;
@@ -3990,33 +5449,33 @@ int evaluate_token(void) {
 
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_x1, &register_x2, &register_x_mode, &data_x, &data_type_x, label_x, NO) == FAILED)
           break;
+        
+        /* target can only be Dn */
+        if (register_x_mode != B8(00000000)) {
+          print_error(ERROR_NUM, "Invalid addressing mode.\n");
+          return FAILED;
+        }
+  
+        /* register */
+        opcode |= register_x1 << 9;
 
-	/* target can only be Dn */
-	if (register_x_mode != B8(00000000)) {
-	  print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	  return FAILED;
-	}
-	
-	/* register */
-	opcode |= register_x1 << 9;
-
-	/* encode mode */
-	opcode |= register_y_mode << 3;
-	
+        /* encode mode */
+        opcode |= register_y_mode << 3;
+  
         /* set destination register */
-	opcode |= register_y1;
+        opcode |= register_y1;
 
-	/* size */
-	if (size == B8(00000001))
-	  opcode |= B8(00000011) << 7;
-	else
-	  opcode |= B8(00000010) << 7;
-	
-	/* emit opcode */
+        /* size */
+        if (size == B8(00000001))
+          opcode |= B8(00000011) << 7;
+        else
+          opcode |= B8(00000010) << 7;
+  
+        /* emit opcode */
         _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
 
-	/* emit extra data */
-	_mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
+        /* emit extra data */
+        _mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
 
         g_source_index = s_parser_source_index;
 
@@ -4032,12 +5491,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -4052,26 +5511,26 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_y1, &register_y2, &register_y_mode, &data_y, &data_type_y, label_y, NO) == FAILED)
           break;
 
-	/* target cannot be An, immediate... */
-	if (register_y_mode == B8(00000001) ||
-	    (register_y_mode == B8(00000111) && register_y1 == B8(00000100)) ||
-	    (register_y_mode == B8(00000111) && register_y1 == B8(00000010)) ||
-	    (register_y_mode == B8(00000111) && register_y1 == B8(00000011))) {
-	    print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	  return FAILED;
-	}
+        /* target cannot be An, immediate... */
+        if (register_y_mode == B8(00000001) ||
+            (register_y_mode == B8(00000111) && register_y1 == B8(00000100)) ||
+            (register_y_mode == B8(00000111) && register_y1 == B8(00000010)) ||
+            (register_y_mode == B8(00000111) && register_y1 == B8(00000011))) {
+          print_error(ERROR_NUM, "Invalid addressing mode.\n");
+          return FAILED;
+        }
 
-	/* encode mode */
-	opcode |= register_y_mode << 3;
-	
+        /* encode mode */
+        opcode |= register_y_mode << 3;
+  
         /* set destination register */
-	opcode |= register_y1;
+        opcode |= register_y1;
 
-	/* emit opcode */
+        /* emit opcode */
         _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
 
-	/* emit extra data */
-	_mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
+        /* emit extra data */
+        _mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
 
         g_source_index = s_parser_source_index;
 
@@ -4088,17 +5547,17 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
         }
-
+        
         if (done == NO)
           break;
 
@@ -4284,12 +5743,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -4309,34 +5768,34 @@ int evaluate_token(void) {
           return FAILED;
         }
         
-	backup = g_source_index;
-	g_source_index = s_parser_source_index;
-	res = input_number();
-	s_parser_source_index = g_source_index;
-	g_source_index = backup;
+        backup = g_source_index;
+        g_source_index = s_parser_source_index;
+        res = input_number();
+        s_parser_source_index = g_source_index;
+        g_source_index = backup;
 
-	if (!(res == SUCCEEDED || res == INPUT_NUMBER_ADDRESS_LABEL || res == INPUT_NUMBER_STACK))
-	  return FAILED;
+        if (!(res == SUCCEEDED || res == INPUT_NUMBER_ADDRESS_LABEL || res == INPUT_NUMBER_STACK))
+          return FAILED;
 
-	if (res == INPUT_NUMBER_STACK) {
-	  /* let's configure the stack so that all label references inside are relative */
-	  struct stack *stack = find_stack_calculation(g_latest_stack, YES);
-	  if (stack == NULL)
-	    return FAILED;
+        if (res == INPUT_NUMBER_STACK) {
+          /* let's configure the stack so that all label references inside are relative */
+          struct stack *stack = find_stack_calculation(g_latest_stack, YES);
+          if (stack == NULL)
+            return FAILED;
     
-	  stack->relative_references = 1;
-	}
+          stack->relative_references = 1;
+        }
 
         /* encode register */
         opcode |= register_y1;
 
-	/* emit opcode */
-	_output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
+        /* emit opcode */
+        _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
 
         /* 16-bit */
         if (res == INPUT_NUMBER_ADDRESS_LABEL) {
           struct stack *stack;
-	    
+      
           if (stack_create_label_stack(g_label) == FAILED)
             return FAILED;
           if (stack_add_offset_plus_n_to_stack(g_latest_stack, 2) == FAILED)
@@ -4348,7 +5807,7 @@ int evaluate_token(void) {
             return FAILED;
     
           stack->relative_references = 1;
-	  
+    
           _output_assembled_instruction(s_instruction_tmp, "C%d ", g_latest_stack);
         }
         else if (res == INPUT_NUMBER_STACK) {
@@ -4362,9 +5821,9 @@ int evaluate_token(void) {
         else
           _output_assembled_instruction(s_instruction_tmp, "y%d ", g_parsed_int);
 
-	g_source_index = s_parser_source_index;
-	
-	return SUCCEEDED;
+        g_source_index = s_parser_source_index;
+  
+        return SUCCEEDED;
       }
       break;
 
@@ -4377,12 +5836,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -4398,10 +5857,10 @@ int evaluate_token(void) {
           break;
 
         /* source cannot be An */
-	if (register_y_mode == B8(00000001)) {
-	  print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	  return FAILED;
-	}
+        if (register_y_mode == B8(00000001)) {
+          print_error(ERROR_NUM, "Invalid addressing mode.\n");
+          return FAILED;
+        }
         
         if (g_buffer[s_parser_source_index] != ',')
           break;
@@ -4411,25 +5870,25 @@ int evaluate_token(void) {
           break;
 
         /* target must be Dn */
-	if (register_x_mode != B8(00000000)) {
-	  print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	  return FAILED;
-	}
+        if (register_x_mode != B8(00000000)) {
+          print_error(ERROR_NUM, "Invalid addressing mode.\n");
+          return FAILED;
+        }
 
         /* register */
         opcode |= register_x1 << 9;
 
-	/* encode mode */
-	opcode |= register_y_mode << 3;
-	
+        /* encode mode */
+        opcode |= register_y_mode << 3;
+  
         /* set destination register */
-	opcode |= register_y1;
+        opcode |= register_y1;
         
-	/* emit opcode */
+        /* emit opcode */
         _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
 
-	/* emit extra data */
-	_mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
+        /* emit extra data */
+        _mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
 
         g_source_index = s_parser_source_index;
 
@@ -4446,12 +5905,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -4483,62 +5942,62 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_x1, &register_x2, &register_x_mode, &data_x, &data_type_x, label_x, YES) == FAILED)
           break;
 
-	if (immediate) {
-	  if (register_x_mode == B8(00001000)) {
-	    /* #<data>, CCR */
+        if (immediate) {
+          if (register_x_mode == B8(00001000)) {
+            /* #<data>, CCR */
 
-	    /* not .b? */
-	    if (size != B8(00000000)) {
-	      print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	      return FAILED;
-	    }
+            /* not .b? */
+            if (size != B8(00000000)) {
+              print_error(ERROR_NUM, "Invalid addressing mode.\n");
+              return FAILED;
+            }
 
-	    /* eori */
-	    if (opcode == B16(00001010, 00000000))
-	      opcode = B16(00001010, 00111100);
+            /* eori */
+            if (opcode == B16(00001010, 00000000))
+              opcode = B16(00001010, 00111100);
 
-	    /* emit opcode */
-	    _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
+            /* emit opcode */
+            _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
 
-	    /* emit extra data */
-	    _mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
+            /* emit extra data */
+            _mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
 
-	    g_source_index = s_parser_source_index;
+            g_source_index = s_parser_source_index;
 
-	    return SUCCEEDED;
-	  }
-	  else if (register_x_mode == B8(00001001)) {
-	    /* #<data>, SR */
+            return SUCCEEDED;
+          }
+          else if (register_x_mode == B8(00001001)) {
+            /* #<data>, SR */
 
-	    /* not .w? */
-	    if (size != B8(00000001)) {
-	      print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	      return FAILED;
-	    }
+            /* not .w? */
+            if (size != B8(00000001)) {
+              print_error(ERROR_NUM, "Invalid addressing mode.\n");
+              return FAILED;
+            }
 
-	    /* eori */
-	    if (opcode == B16(00001010, 00000000))
-	      opcode = B16(00001010, 01111100);
+            /* eori */
+            if (opcode == B16(00001010, 00000000))
+              opcode = B16(00001010, 01111100);
 
-	    /* emit opcode */
-	    _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
+            /* emit opcode */
+            _output_assembled_instruction(s_instruction_tmp, "y%d ", opcode);
 
-	    /* emit extra data */
-	    _mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
+            /* emit extra data */
+            _mc68000_emit_extra_data(register_y_mode, register_y1, register_y2, data_type_y, data_y, label_y, size);
 
-	    g_source_index = s_parser_source_index;
+            g_source_index = s_parser_source_index;
 
-	    return SUCCEEDED;
-	  }
-	}
+            return SUCCEEDED;
+          }
+        }
 
-	/* source must be Dn */
-	if (immediate == NO) {
-	  if (register_y_mode != B8(00000000)) {
-	    print_error(ERROR_NUM, "Invalid addressing mode.\n");
-	    return FAILED;
-	  }
-	}
+        /* source must be Dn */
+        if (immediate == NO) {
+          if (register_y_mode != B8(00000000)) {
+            print_error(ERROR_NUM, "Invalid addressing mode.\n");
+            return FAILED;
+          }
+        }
         else {
           /* no An */
           if (register_x_mode == B8(00000001)) {
@@ -4610,12 +6069,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -4637,7 +6096,7 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_x1, &register_x2, &register_x_mode, &data_x, &data_type_x, label_x, YES) == FAILED)
           break;
 
-	/* Dn, Dm */
+        /* Dn, Dm */
         if (register_y_mode == B8(00000000) && register_x_mode == B8(00000000))
           opmode = B8(01000);
         /* An, Am */
@@ -4680,12 +6139,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -4700,7 +6159,7 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_y1, &register_y2, &register_y_mode, &data_y, &data_type_y, label_y, NO) == FAILED)
           break;
 
-	/* only Dn is accepted */
+        /* only Dn is accepted */
         if (register_y_mode != B8(00000000)) {
           print_error(ERROR_NUM, "Invalid addressing mode.\n");
           return FAILED;
@@ -4730,12 +6189,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -4750,7 +6209,7 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_y1, &register_y2, &register_y_mode, &data_y, &data_type_y, label_y, NO) == FAILED)
           break;
 
-	/* Dn or An or (An)+ or -(An) or immediate */
+        /* Dn or An or (An)+ or -(An) or immediate */
         if (register_y_mode == B8(00000000) || register_y_mode == B8(00000001) ||
             register_y_mode == B8(00000011) || register_y_mode == B8(00000100) ||
             (register_y_mode == B8(00000111) && register_y1 == B8(00000100))) {
@@ -4785,12 +6244,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -4812,7 +6271,7 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_x1, &register_x2, &register_x_mode, &data_x, &data_type_x, label_x, YES) == FAILED)
           break;
 
-	/* Dn or An or (An)+ or -(An) or immediate as source? */
+        /* Dn or An or (An)+ or -(An) or immediate as source? */
         if (register_y_mode == B8(00000000) || register_y_mode == B8(00000001) ||
             register_y_mode == B8(00000011) || register_y_mode == B8(00000100) ||
             (register_y_mode == B8(00000111) && register_y1 == B8(00000100))) {
@@ -4853,12 +6312,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -4880,7 +6339,7 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_x1, &register_x2, &register_x_mode, &data_x, &data_type_x, label_x, YES) == FAILED)
           break;
 
-	/* An source? */
+  /* An source? */
         if (register_y_mode != B8(00000001)) {
           print_error(ERROR_NUM, "Invalid addressing mode.\n");
           return FAILED;
@@ -4915,12 +6374,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -4935,7 +6394,7 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_y1, &register_y2, &register_y_mode, &data_y, &data_type_y, label_y, NO) == FAILED)
           break;
 
-	/* invalid addressing modes? */
+        /* invalid addressing modes? */
         if (register_y_mode == B8(00000001) ||
             (register_y_mode == B8(00000111) && register_y1 == B8(00000100)) ||
             (register_y_mode == B8(00000111) && register_y1 == B8(00000010)) ||
@@ -4971,12 +6430,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -5018,12 +6477,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -5037,7 +6496,7 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_y1, &register_y2, &register_y_mode, &data_y, &data_type_y, label_y, NO) == FAILED)
           break;
 
-	/* only Dn is accepted */
+        /* only Dn is accepted */
         if (register_y_mode != B8(00000000)) {
           print_error(ERROR_NUM, "Invalid addressing mode.\n");
           return FAILED;
@@ -5064,12 +6523,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -5083,7 +6542,7 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_y1, &register_y2, &register_y_mode, &data_y, &data_type_y, label_y, NO) == FAILED)
           break;
 
-	/* only immediate is accepted */
+        /* only immediate is accepted */
         if (register_y_mode != B8(00000111) || register_y1 != B8(00000100)) {
           print_error(ERROR_NUM, "Invalid addressing mode.\n");
           return FAILED;
@@ -5119,12 +6578,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -5138,7 +6597,7 @@ int evaluate_token(void) {
         if (_mc68000_parse_ea(g_buffer, &s_parser_source_index, &register_y1, &register_y2, &register_y_mode, &data_y, &data_type_y, label_y, NO) == FAILED)
           break;
 
-	/* only An is accepted */
+        /* only An is accepted */
         if (register_y_mode != B8(00000001)) {
           print_error(ERROR_NUM, "Invalid addressing mode.\n");
           return FAILED;
@@ -5165,12 +6624,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -5325,18 +6784,23 @@ int evaluate_token(void) {
           return SUCCEEDED;
         }
 
+        if (register_y_mode == B8(00000111) && register_y1 == B8(00000100))
+          immediate = YES;
+
+        /*
         if (register_y_mode == B8(00000111) && register_y1 == B8(00000100)) {
           immediate = YES;
 
-          /* is immediate value [-128, 127]? */
+          // is immediate value [-128, 127]?
           if (register_x_mode == B8(00000000) && mode == MC68000_MODE_ALL && data_type_y == SUCCEEDED && data_y >= -128 && data_y <= 127) {
             mode = MC68000_MODE_Q;
 
-            /* yes, switch move -> moveq */
+            // yes, switch move -> moveq
             if (opcode == B16(00000000, 00000000))
               opcode = B16(01110000, 00000000);
           }
         }
+        */
 
         /* no special source or target */
         if (register_x_mode > B8(00000111) || register_y_mode > B8(00000111)) {
@@ -5460,12 +6924,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -5540,12 +7004,12 @@ int evaluate_token(void) {
         
         for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
           if (s_instruction_tmp->string[x] == 0) {
-	    if (g_buffer[s_parser_source_index] == ' ') {
-	      done = YES;
-	      break;
-	    }
-	    else
-	      break;
+            if (g_buffer[s_parser_source_index] == ' ') {
+              done = YES;
+              break;
+            }
+            else
+              break;
           }
           if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
             break;
@@ -5694,8 +7158,45 @@ int evaluate_token(void) {
       }
       break;
 
-    case 5:
     case 1:
+      /* 8-bit signed operand, absolute address */
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (s_instruction_tmp->string[x] == 'x') {
+          y = g_source_index;
+          g_source_index = s_parser_source_index;
+          z = input_number();
+          s_parser_source_index = g_source_index;
+          g_source_index = y;
+
+          if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
+            return FAILED;
+          if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < -128)) {
+            print_error(ERROR_NUM, "Out of signed 8-bit range.\n");
+            return FAILED;
+          }
+
+          for (x++; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+            if (IS_THE_MATCH_COMPLETE(x)) {
+              if (z == SUCCEEDED)
+                _output_assembled_instruction(s_instruction_tmp, "d%d d%d ", s_instruction_tmp->hex, g_parsed_int);
+              else if (z == INPUT_NUMBER_ADDRESS_LABEL)
+                _output_assembled_instruction(s_instruction_tmp, "k%d d%d Q%s ", g_active_file_info_last->line_current, s_instruction_tmp->hex, g_label);
+              else
+                _output_assembled_instruction(s_instruction_tmp, "d%d c%d ", s_instruction_tmp->hex, g_latest_stack);
+        
+              g_source_index = s_parser_source_index;
+              return SUCCEEDED;
+            }
+            if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+              break;
+          }
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+      
+    case 5:
       /* 8-bit signed operand, relative address */
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
@@ -5795,8 +7296,6 @@ int evaluate_token(void) {
 
     case 4:
       /* 8-bit unsigned operand, absolute address */
-      if (g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
-        break;
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
           y = g_source_index;
@@ -5807,6 +7306,8 @@ int evaluate_token(void) {
     
           if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
             return FAILED;
+          if ((g_operand_hint == HINT_NONE || (g_operand_hint == HINT_8BIT && g_operand_hint_type == HINT_TYPE_DEDUCED)) && g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
+            break;
           if (g_operand_hint == HINT_16BIT)
             break;
           if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < 0)) {
@@ -5870,8 +7371,45 @@ int evaluate_token(void) {
       }
       break;
 
-    case 5:
     case 1:
+      /* 8-bit signed operand, absolute address */
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (s_instruction_tmp->string[x] == 'x') {
+          y = g_source_index;
+          g_source_index = s_parser_source_index;
+          z = input_number();
+          s_parser_source_index = g_source_index;
+          g_source_index = y;
+
+          if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
+            return FAILED;
+          if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < -128)) {
+            print_error(ERROR_NUM, "Out of signed 8-bit range.\n");
+            return FAILED;
+          }
+
+          for (x++; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+            if (IS_THE_MATCH_COMPLETE(x)) {
+              if (z == SUCCEEDED)
+                _output_assembled_instruction(s_instruction_tmp, "d%d d%d ", s_instruction_tmp->hex, g_parsed_int);
+              else if (z == INPUT_NUMBER_ADDRESS_LABEL)
+                _output_assembled_instruction(s_instruction_tmp, "k%d d%d Q%s ", g_active_file_info_last->line_current, s_instruction_tmp->hex, g_label);
+              else
+                _output_assembled_instruction(s_instruction_tmp, "d%d c%d ", s_instruction_tmp->hex, g_latest_stack);
+        
+              g_source_index = s_parser_source_index;
+              return SUCCEEDED;
+            }
+            if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+              break;
+          }
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+
+    case 5:
       /* 8-bit signed operand, relative address */
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
@@ -5971,8 +7509,6 @@ int evaluate_token(void) {
 
     case 4:
       /* 8-bit unsigned operand, absolute address */
-      if (g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
-        break;
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
           y = g_source_index;
@@ -5983,6 +7519,8 @@ int evaluate_token(void) {
     
           if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
             return FAILED;
+          if ((g_operand_hint == HINT_NONE || (g_operand_hint == HINT_8BIT && g_operand_hint_type == HINT_TYPE_DEDUCED)) && g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
+            break;
           if (g_operand_hint == HINT_16BIT)
             break;
           if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < 0)) {
@@ -6049,8 +7587,52 @@ int evaluate_token(void) {
       }
       break;
 
-    case 5:
     case 1:
+      /* 8-bit signed operand, absolute address */
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (s_instruction_tmp->string[x] == 'x') {
+          y = g_source_index;
+          g_source_index = s_parser_source_index;
+          z = input_number();
+          s_parser_source_index = g_source_index;
+          g_source_index = y;
+
+          if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
+            return FAILED;
+          if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < -128)) {
+            print_error(ERROR_NUM, "Out of signed 8-bit range.\n");
+            return FAILED;
+          }
+
+          for (x++; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+            if (IS_THE_MATCH_COMPLETE(x)) {
+              _output_assembled_instruction(s_instruction_tmp, "k%d ", g_active_file_info_last->line_current);
+
+              if (s_instruction_tmp->hex > 0xFF)
+                _output_assembled_instruction(s_instruction_tmp, "d%d d%d ", (s_instruction_tmp->hex >> 8) & 0xFF, s_instruction_tmp->hex & 0xFF);
+              else
+                _output_assembled_instruction(s_instruction_tmp, "d%d ", s_instruction_tmp->hex);
+        
+              if (z == SUCCEEDED)
+                _output_assembled_instruction(s_instruction_tmp, "d%d ", g_parsed_int);
+              else if (z == INPUT_NUMBER_ADDRESS_LABEL)
+                _output_assembled_instruction(s_instruction_tmp, "Q%s ", g_label);
+              else
+                _output_assembled_instruction(s_instruction_tmp, "c%d ", g_latest_stack);
+        
+              g_source_index = s_parser_source_index;
+              return SUCCEEDED;
+            }
+            if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+              break;
+          }
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+      
+    case 5:
       /* 8-bit signed operand, relative address */
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
@@ -6164,8 +7746,6 @@ int evaluate_token(void) {
 
     case 4:
       /* 8-bit unsigned operand, absolute address */
-      if (g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
-        break;
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
           y = g_source_index;
@@ -6176,6 +7756,8 @@ int evaluate_token(void) {
     
           if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
             return FAILED;
+          if ((g_operand_hint == HINT_NONE || (g_operand_hint == HINT_8BIT && g_operand_hint_type == HINT_TYPE_DEDUCED)) && g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
+            break;
           if (g_operand_hint == HINT_16BIT)
             break;
           if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < 0)) {
@@ -6215,8 +7797,6 @@ int evaluate_token(void) {
 
     case 6:
       /* 5-bit signed operand, absolute address + post op byte code */
-      if (g_xbit_size >= 8 && s_instruction_tmp->skip_8bit == 1)
-        break;
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 's') {
           y = g_source_index;
@@ -6225,13 +7805,15 @@ int evaluate_token(void) {
           s_parser_source_index = g_source_index;
           g_source_index = y;
 
-          /* TODO: add a mechanism so that we could use 5-bit addreslabel references and calculations */
+          /* TODO: add a mechanism so that we could use 5-bit address label references and calculations */
           /* currently we just fall back to 8-bit/16-bit ones */
           if (z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK)
             break;
           if (z != SUCCEEDED)
             return FAILED;
-          if (g_operand_hint == HINT_8BIT || g_operand_hint == HINT_16BIT)
+          if ((g_operand_hint == HINT_NONE || (g_operand_hint == HINT_8BIT && g_operand_hint_type == HINT_TYPE_DEDUCED)) && g_xbit_size >= 8 && s_instruction_tmp->skip_8bit == 1)
+            break;
+          if ((g_operand_hint == HINT_8BIT || g_operand_hint == HINT_16BIT))
             break;
           if (g_parsed_int > 15 || g_parsed_int < -16)
             break;
@@ -6260,8 +7842,6 @@ int evaluate_token(void) {
 
     case 7:
       /* 8-bit signed operand, relative address + post op byte code */
-      if (g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
-        break;
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
           y = g_source_index;
@@ -6272,6 +7852,8 @@ int evaluate_token(void) {
 
           if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
             return FAILED;
+          if ((g_operand_hint == HINT_NONE || (g_operand_hint == HINT_8BIT && g_operand_hint_type == HINT_TYPE_DEDUCED)) && g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
+            break;
           if (g_operand_hint == HINT_16BIT)
             break;
           if (z == SUCCEEDED && (g_parsed_int > 127 || g_parsed_int < -128)) {
@@ -8094,8 +9676,6 @@ int evaluate_token(void) {
 
     case 9:
     case 1:
-      if (g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
-        break;
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
           y = g_source_index;
@@ -8107,6 +9687,8 @@ int evaluate_token(void) {
           if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
             return FAILED;
           if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < -128))
+            break;
+          if ((g_operand_hint == HINT_NONE || (g_operand_hint == HINT_8BIT && g_operand_hint_type == HINT_TYPE_DEDUCED)) && g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
             break;
           if (g_operand_hint == HINT_16BIT)
             break;
@@ -8322,8 +9904,6 @@ int evaluate_token(void) {
       break;
 
     case 5:
-      if (g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
-        break;
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
           y = g_source_index;
@@ -8352,6 +9932,8 @@ int evaluate_token(void) {
               if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
                 return FAILED;
               if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < -128))
+                break;
+              if ((g_operand_hint == HINT_NONE || (g_operand_hint == HINT_8BIT && g_operand_hint_type == HINT_TYPE_DEDUCED)) && g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
                 break;
               if (g_operand_hint == HINT_16BIT)
                 break;
@@ -8458,8 +10040,6 @@ int evaluate_token(void) {
       break;
 
     case 7:
-      if (g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
-        break;
       for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
         if (s_instruction_tmp->string[x] == 'x') {
           y = g_source_index;
@@ -8471,6 +10051,8 @@ int evaluate_token(void) {
           if (!(z == SUCCEEDED || z == INPUT_NUMBER_ADDRESS_LABEL || z == INPUT_NUMBER_STACK))
             return FAILED;
           if (z == SUCCEEDED && (g_parsed_int > 255 || g_parsed_int < -128))
+            break;
+          if ((g_operand_hint == HINT_NONE || (g_operand_hint == HINT_8BIT && g_operand_hint_type == HINT_TYPE_DEDUCED)) && g_xbit_size > 8 && s_instruction_tmp->skip_8bit == 1)
             break;
           if (g_operand_hint == HINT_16BIT)
             break;
@@ -8580,6 +10162,270 @@ int evaluate_token(void) {
       /*************************************************************************************************/
       /*************************************************************************************************/
       
+#endif
+
+#if defined(CX4)
+
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+      /* <Cx4> */
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+
+    case 0:
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (IS_THE_MATCH_COMPLETE(x)) {
+          _cx4_emit_word(s_instruction_tmp->hex);
+          g_source_index = s_parser_source_index;
+          return SUCCEEDED;
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+
+    case 1:
+    case 7:
+    case 0xD:
+      labelx[0] = 0;
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+        if (s_instruction_tmp->string[x] == 'x') {
+          if (_cx4_parse_number_at(&s_parser_source_index, &e, &v, labelx) == FAILED)
+            return FAILED;
+          if (s_instruction_tmp->type == 0xD) {
+            /* MOV PH,x : 7-bit immediate */
+            if (v == SUCCEEDED && (e < 0 || e > 127)) {
+              print_error(ERROR_NUM, "Out of 7-bit range.\n");
+              return FAILED;
+            }
+          }
+          else if (s_instruction_tmp->type == 1) {
+            /* Branch/jump target : byte address, must be even, 0..510
+               (encoded as 9-bit word address). */
+            if (v == SUCCEEDED && (e < 0 || e > 510 || (e & 1) != 0)) {
+              print_error(ERROR_NUM, "Cx4 branch target out of 9-bit range or odd.\n");
+              return FAILED;
+            }
+          }
+          else {
+            if (v == SUCCEEDED && (e < 0 || e > 255)) {
+              print_error(ERROR_NUM, "Out of 8-bit range.\n");
+              return FAILED;
+            }
+          }
+          if (v == INPUT_NUMBER_ADDRESS_LABEL && _cx4_looks_like_register_name(labelx) == YES)
+            break;
+
+          for (x++; x < INSTRUCTION_STRING_LENGTH_MAX; s_parser_source_index++, x++) {
+            if (IS_THE_MATCH_COMPLETE(x)) {
+              if (s_instruction_tmp->type == 0xD)
+                _cx4_emit_low_n_word(s_instruction_tmp->hex, 7, v, e, labelx);
+              else if (s_instruction_tmp->type == 1)
+                _cx4_emit_branch_word(s_instruction_tmp->hex, v, e, labelx);
+              else
+                _cx4_emit_low8_word(s_instruction_tmp->hex, v, e, labelx);
+              g_source_index = s_parser_source_index;
+              return SUCCEEDED;
+            }
+            if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+              break;
+          }
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+      }
+      break;
+
+    case 2:
+      q = 0;
+      s_parser_source_index = _cx4_skip_spaces(g_buffer, s_parser_source_index);
+      if (_cx4_parse_shifted_accumulator(&s_parser_source_index, &q) == FAILED)
+        break;
+      s_parser_source_index = _cx4_skip_spaces(g_buffer, s_parser_source_index);
+      if (g_buffer[s_parser_source_index] != ',')
+        break;
+      s_parser_source_index++;
+
+      y = 0;
+      if (_cx4_parse_register_at(&s_parser_source_index, &y, NO, NULL) == FAILED) {
+        if (g_label[0] != 0 && _cx4_looks_like_register_name(g_label) == YES)
+          print_error(ERROR_ERR, "Unknown or invalid Cx4 register \"%s\".\n", g_label);
+        break;
+      }
+
+      _cx4_emit_word(s_instruction_tmp->hex + (q << 8) + y);
+      g_source_index = s_parser_source_index;
+      return SUCCEEDED;
+      break;
+
+    case 3:
+      q = 0;
+      labelx[0] = 0;
+      s_parser_source_index = _cx4_skip_spaces(g_buffer, s_parser_source_index);
+      if (_cx4_parse_shifted_accumulator(&s_parser_source_index, &q) == FAILED)
+        break;
+      s_parser_source_index = _cx4_skip_spaces(g_buffer, s_parser_source_index);
+      if (g_buffer[s_parser_source_index] != ',')
+        break;
+      s_parser_source_index++;
+
+      if (_cx4_parse_number_at(&s_parser_source_index, &e, &v, labelx) == FAILED)
+        break;
+      if (v == SUCCEEDED && (e < 0 || e > 255)) {
+        print_error(ERROR_NUM, "Out of 8-bit range.\n");
+        return FAILED;
+      }
+      if (v == INPUT_NUMBER_ADDRESS_LABEL && _cx4_looks_like_register_name(labelx) == YES)
+        break;
+
+      _cx4_emit_low8_word(s_instruction_tmp->hex + (q << 8), v, e, labelx);
+      g_source_index = s_parser_source_index;
+      return SUCCEEDED;
+      break;
+
+    case 4:
+    case 6:
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; x++) {
+        if (s_instruction_tmp->string[x] == 'r') {
+          y = 0;
+          if (_cx4_parse_register_at(&s_parser_source_index, &y, NO, NULL) == FAILED)
+            break;
+          _cx4_emit_word(s_instruction_tmp->hex + y);
+          g_source_index = s_parser_source_index;
+          return SUCCEEDED;
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+        s_parser_source_index++;
+      }
+      break;
+
+    case 0xB:
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; x++) {
+        if (s_instruction_tmp->string[x] == 'r') {
+          y = 0;
+          if (_cx4_parse_register_at(&s_parser_source_index, &y, NO, NULL) == FAILED)
+            break;
+
+          for (x++; x < INSTRUCTION_STRING_LENGTH_MAX; x++) {
+            if (IS_THE_MATCH_COMPLETE(x)) {
+              _cx4_emit_word(s_instruction_tmp->hex + y);
+              g_source_index = s_parser_source_index;
+              return SUCCEEDED;
+            }
+            if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+              break;
+            s_parser_source_index++;
+          }
+          break;
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+        s_parser_source_index++;
+      }
+      break;
+
+    case 5:
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; x++) {
+        if (s_instruction_tmp->string[x] == 'u') {
+          if (_cx4_parse_uint(&s_parser_source_index, 0, 31, &y) == FAILED) {
+            print_error(ERROR_NUM, "Out of 5-bit range.\n");
+            return FAILED;
+          }
+          _cx4_emit_word(s_instruction_tmp->hex + y);
+          g_source_index = s_parser_source_index;
+          return SUCCEEDED;
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+        s_parser_source_index++;
+      }
+      break;
+
+    case 8:
+    case 0xC:
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; x++) {
+        if (s_instruction_tmp->string[x] == 'g') {
+          y = 0;
+          if (_cx4_parse_register_at(&s_parser_source_index, &y, YES, NULL) == FAILED)
+            break;
+          _cx4_emit_word(s_instruction_tmp->hex + (y - 0x60));
+          g_source_index = s_parser_source_index;
+          return SUCCEEDED;
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+        s_parser_source_index++;
+      }
+      break;
+
+    case 9:
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; x++) {
+        if (s_instruction_tmp->string[x] == 'q') {
+          if (_cx4_parse_uint(&s_parser_source_index, 0, 1023, &y) == FAILED) {
+            print_error(ERROR_NUM, "Out of 10-bit range.\n");
+            return FAILED;
+          }
+          _cx4_emit_word(s_instruction_tmp->hex + y);
+          g_source_index = s_parser_source_index;
+          return SUCCEEDED;
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+        s_parser_source_index++;
+      }
+      break;
+
+    case 0xE:
+      labelx[0] = 0;
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; x++) {
+        if (s_instruction_tmp->string[x] == 'q') {
+          if (_cx4_parse_number_at(&s_parser_source_index, &e, &v, labelx) == FAILED)
+            return FAILED;
+          if (v == SUCCEEDED && (e < 0 || e > 1023)) {
+            print_error(ERROR_NUM, "Out of 10-bit range.\n");
+            return FAILED;
+          }
+          if (v == INPUT_NUMBER_ADDRESS_LABEL && _cx4_looks_like_register_name(labelx) == YES)
+            break;
+
+          _cx4_emit_10bit_word(s_instruction_tmp->hex, v, e, labelx);
+          g_source_index = s_parser_source_index;
+          return SUCCEEDED;
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+        s_parser_source_index++;
+      }
+      break;
+
+    case 0xA:
+      for ( ; x < INSTRUCTION_STRING_LENGTH_MAX; x++) {
+        if (s_instruction_tmp->string[x] == 'h') {
+          if (_cx4_parse_uint(&s_parser_source_index, 0, 127, &y) == FAILED) {
+            print_error(ERROR_NUM, "Out of 7-bit range.\n");
+            return FAILED;
+          }
+          _cx4_emit_word(s_instruction_tmp->hex + y);
+          g_source_index = s_parser_source_index;
+          return SUCCEEDED;
+        }
+        if (s_instruction_tmp->string[x] != toupper((int)g_buffer[s_parser_source_index]))
+          break;
+        s_parser_source_index++;
+      }
+      break;
+
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+      /* </Cx4> */
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+      /*************************************************************************************************/
+
 #endif
 
 #if defined(SUPERFX)
@@ -9390,6 +11236,10 @@ int evaluate_token(void) {
 
   /* allow error messages from input_numbers() */
   g_input_number_error_msg = YES;
+#if defined(EZ80)
+  s_ez80_adl_prefix = 0;
+  _ez80_restore_adl_suffix(ez80_adl_suffix_position, ez80_adl_original_ss);
+#endif
 
   return EVALUATE_TOKEN_NOT_IDENTIFIED;
 }

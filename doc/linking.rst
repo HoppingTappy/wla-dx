@@ -128,6 +128,18 @@ If flag ``S`` is used, WLALINK will create a WLA symbol file, that is much
 like NO$GMB symbol file, but shows also symbols, defines, and breakpoints, not
 just labels.
 
+If flag ``E`` is used with a comma- or space-separated list, WLALINK will write
+debug export files for emulators and tools. Supported formats are ``VICE``,
+``RGBDS`` (also ``BGB`` and ``SAMEBOY``), ``MESEN``, ``EMULICIOUS``, ``CSPECT``,
+``NOCASH``, ``MAME`` and ``JSON``. The ``MAME`` format writes a MAME debugger
+command file that can be loaded with MAME's ``source`` debugger command.
+
+If flag ``sM`` is used, WLALINK will produce a MAME-compatible flat symbol
+file. Each line has the form ``AABBCCDD name``, where ``AABBCCDD`` is the
+full CPU-visible hexadecimal address of the label. This format is suitable
+for ingestion by MAME debugger scripts and generic disassembler symbol
+importers (Ghidra/IDA/etc.).
+
 If flag ``d`` is used, WLALINK discards all unreferenced ``FREE``, ``SEMIFREE``,
 ``SEMISUBFREE``, ``SUPERFREE`` and ``RAM`` sections. This way you can link big
 libraries to your project and WLALINK will choose only the used sections, so you
@@ -148,6 +160,17 @@ program file (use with flag ``b``). The header contains the load address for
 the PRG. Use the flag ``a`` to specify the load address. It can be a value or
 the name of a label.
 
+If flag ``t`` is used with ``C64CRT``, WLALINK will write a Commodore 64 CRT
+cartridge image. Use flag ``-64`` to specify the cartridge type.
+
+If flag ``O`` is used with ``BIN``, ``SMD`` or ``MD``, WLALINK selects the Mega
+Drive/Genesis ROM output file format. ``BIN`` is normal raw output and is also
+the default when ``-O`` is omitted, ``SMD`` writes a 512-byte Super Magic Drive
+header and per-16KB even/odd interleaving, and ``MD`` writes all even bytes
+followed by all odd bytes for the whole ROM image. ``SMD`` output requires the
+ROM size to be a multiple of 16KB and is currently limited to 255 16KB blocks
+(4080KB) for single-file SMD images; ``MD`` output requires an even ROM size.
+
 If flag ``i`` is given, WLALINK will write list files. Note that you must
 compile the object and library files with ``-i`` flag as well. Otherwise
 WLALINK has no extra information it needs to build list files. Here is an
@@ -158,6 +181,10 @@ contains the source text and the result data the source compiled into. List
 files are good for debugging. NOTE: list file data can currently be generated
 only for code inside sections. ``.MACRO`` calls and ``.REPT`` s don't produce
 list file data either.
+
+If flag ``-g`` is given, WLALINK also writes list files, but writes one combined
+list file per object file next to that object file, switching into and out of
+included files as the source is assembled. This flag implies ``-i``.
 
 If flag ``L`` is given after the above options, WLALINK will use the
 directory specified after the flag for including libraries. If WLALINK
@@ -200,9 +227,14 @@ following example::
         RET
     ...
 
-
 Here duplicate ``INIT_LEVEL`` labels are accepted as they both point to the
 same memory address (in the program's point of view).
+
+Allow duplicate labels when they have the same values using ``C`` flag.
+
+If you want to allow for some reason duplicate labels (and definitions) when they
+have different values, use the ``c`` flag. The linker will in this case probably
+use those that it processed first.
 
 Note that when you use .RAMSECTIONs, WLALINK will generate labels
 RAM_USAGE_SLOT_[slot name/id]_BANK_[bank number]_START and
@@ -216,4 +248,5 @@ Examples::
     [seravy@localhost tbp]# wlalink -r linkfile testa.sfc
     [seravy@localhost tbp]# wlalink -d -i -b linkfile testb.sfc
     [seravy@localhost tbp]# wlalink -v -S -L ../../lib linkfile testc.sfc
+    [seravy@localhost tbp]# wlalink -v -i -E mame,json linkfile testd.sfc
     [seravy@localhost tbp]# wlalink -v -b -s -t c64PRG -a LOAD_ADDRESS linkfile linked.prg

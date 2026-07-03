@@ -1,17 +1,20 @@
 WLA DX (Wzonka-Lad Assembler Deluxe)
 ====================================
 
-WLA DX - Yet Another
-GB-Z80/Z80/Z80N/6502/65C02/65CE02/65816/68000/6800/6801/6809/8008/8080/HUC6280/SPC-700/SuperFX
+WLA DX - Yet Another ANSI C 
+GB-Z80/Cx4/Z80/Z80N/eZ80/6502/65C02/65CE02/65816/68000/6800/6801/6809/8008/8080/HUC6280/SH-2/SPC-700/SuperFX
 Multi Platform Cross Assembler Package
 
 Azure Pipelines CI:
 
-* [![Build Status](https://dev.azure.com/villehelin0486/villehelin/_apis/build/status/vhelin.wla-dx%20Linux?branchName=master)](https://dev.azure.com/villehelin0486/villehelin/_build/latest?definitionId=1&branchName=master) - Linux
-* [![Build Status](https://dev.azure.com/villehelin0486/villehelin/_apis/build/status/vhelin.wla-dx%20macOS?branchName=master)](https://dev.azure.com/villehelin0486/villehelin/_build/latest?definitionId=6&branchName=master) - macOS
-* [![Build Status](https://dev.azure.com/villehelin0486/villehelin/_apis/build/status/vhelin.wla-dx%20Windows%20x86?branchName=master)](https://dev.azure.com/villehelin0486/villehelin/_build/latest?definitionId=2&branchName=master) - Windows x86
-* [![Build Status](https://dev.azure.com/villehelin0486/villehelin/_apis/build/status/vhelin.wla-dx%20Windows%20x64?branchName=master)](https://dev.azure.com/villehelin0486/villehelin/_build/latest?definitionId=10&branchName=master) - Windows x64
-* [![Build Status](https://dev.azure.com/villehelin0486/villehelin/_apis/build/status/vhelin.wla-dx%20Windows%20MSVC?branchName=master)](https://dev.azure.com/villehelin0486/villehelin/_build/latest?definitionId=8&branchName=master) - Windows MSVC
+* [![Build Status](https://dev.azure.com/villehelin0486/villehelin/_apis/build/status%2Fvhelin.wla-dx%20Linux%20Sanitizers?branchName=master)](https://dev.azure.com/villehelin0486/villehelin/_build/latest?definitionId=24&branchName=master) - Linux Sanitizers (ASan, UBSan, MSan)
+* [![Build Status](https://dev.azure.com/villehelin0486/villehelin/_apis/build/status%2Fvhelin.wla-dx%20Windows%20MSVC?branchName=master)](https://dev.azure.com/villehelin0486/villehelin/_build/latest?definitionId=23&branchName=master) - Windows MSVC
+* [![Build Status](https://dev.azure.com/villehelin0486/villehelin/_apis/build/status%2Fvhelin.wla-dx%20Windows%20Clang?branchName=master)](https://dev.azure.com/villehelin0486/villehelin/_build/latest?definitionId=22&branchName=master) - Windows Clang
+* [![Build Status](https://dev.azure.com/villehelin0486/villehelin/_apis/build/status%2Fvhelin.wla-dx%20Windows%20XP%2032-bit?branchName=master)](https://dev.azure.com/villehelin0486/villehelin/_build/latest?definitionId=26&branchName=master) - Windows XP 32-bit
+* [![Build Status](https://dev.azure.com/villehelin0486/villehelin/_apis/build/status%2Fvhelin.wla-dx%20macOS%20GCC?branchName=master)](https://dev.azure.com/villehelin0486/villehelin/_build/latest?definitionId=21&branchName=master) - macOS GCC
+* [![Build Status](https://dev.azure.com/villehelin0486/villehelin/_apis/build/status%2Fvhelin.wla-dx%20macOS%20Clang?branchName=master)](https://dev.azure.com/villehelin0486/villehelin/_build/latest?definitionId=20&branchName=master) - macOS Clang
+* [![Build Status](https://dev.azure.com/villehelin0486/villehelin/_apis/build/status%2Fvhelin.wla-dx%20Linux%20GCC?branchName=master)](https://dev.azure.com/villehelin0486/villehelin/_build/latest?definitionId=19&branchName=master) - Linux GCC
+* [![Build Status](https://dev.azure.com/villehelin0486/villehelin/_apis/build/status%2Fvhelin.wla-dx%20Linux%20Clang?branchName=master)](https://dev.azure.com/villehelin0486/villehelin/_build/latest?definitionId=18&branchName=master) - Linux Clang
 
 Documentation:
 
@@ -26,7 +29,9 @@ Supported architectures are:
 
 * Z80
 * Z80N
+* eZ80
 * GB (GB-Z80)
+* Cx4
 * 6502
 * 65C02
 * 65CE02
@@ -38,9 +43,9 @@ Supported architectures are:
 * 8008
 * 8080
 * HuC6280
+* SH-2
 * SPC700
 * SuperFX
-
 
 
 Installing
@@ -54,7 +59,7 @@ Compiling
 You need:
 
 * CMake (at least v2.8.12)
-* C compiler
+* ANSI C compiler
 * Sphinx (optional, min. v1.2.0, v1.6.0 recommended) (to generate docs)
 
 1. `git clone https://github.com/vhelin/wla-dx # Clone the repository`

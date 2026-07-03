@@ -694,8 +694,42 @@ static int _parse_value_into_string(char e) {
 }
 
 
+static int _try_parse_operand_hint(void) {
+
+  char e;
+  
+  e = g_buffer[g_source_index+1];
+  if (e == 'b' || e == 'B') {
+    g_operand_hint = HINT_8BIT;
+    g_operand_hint_type = HINT_TYPE_GIVEN;
+    g_source_index += 2;
+    return SUCCEEDED;
+  }
+  else if (e == 'w' || e == 'W') {
+    g_operand_hint = HINT_16BIT;
+    g_operand_hint_type = HINT_TYPE_GIVEN;
+    g_source_index += 2;
+    return SUCCEEDED;
+  }
+  else if (e == 'l' || e == 'L') {
+    g_operand_hint = HINT_24BIT;
+    g_operand_hint_type = HINT_TYPE_GIVEN;
+    g_source_index += 2;
+    return SUCCEEDED;
+  }
+  else if (e == 'd' || e == 'D') {
+    g_operand_hint = HINT_32BIT;
+    g_operand_hint_type = HINT_TYPE_GIVEN;
+    g_source_index += 2;
+    return SUCCEEDED;
+  }
+
+  return FAILED;
+}
+
+
 #if defined(PROFILE_FUNCTIONS)
-int _input_number(void) {
+static int _input_number(void) {
 #else
 int input_number(void) {
 #endif
@@ -928,29 +962,8 @@ int input_number(void) {
       }
 
       /* does the MACRO argument number end with a .b/.w/.l/.d? */
-      if (e == '.') {
-        e = g_buffer[g_source_index+1];
-        if (e == 'b' || e == 'B') {
-          g_operand_hint = HINT_8BIT;
-          g_operand_hint_type = HINT_TYPE_GIVEN;
-          g_source_index += 2;
-        }
-        else if (e == 'w' || e == 'W') {
-          g_operand_hint = HINT_16BIT;
-          g_operand_hint_type = HINT_TYPE_GIVEN;
-          g_source_index += 2;
-        }
-        else if (e == 'l' || e == 'L') {
-          g_operand_hint = HINT_24BIT;
-          g_operand_hint_type = HINT_TYPE_GIVEN;
-          g_source_index += 2;
-        }
-        else if (e == 'd' || e == 'D') {
-          g_operand_hint = HINT_32BIT;
-          g_operand_hint_type = HINT_TYPE_GIVEN;
-          g_source_index += 2;
-        }
-      }
+      if (e == '.')
+        _try_parse_operand_hint();
 
       if (k == INPUT_NUMBER_FLOAT) {
         if (g_input_float_mode == ON)
@@ -1008,29 +1021,8 @@ int input_number(void) {
 
     e = g_buffer[g_source_index];
 
-    if (e == '.') {
-      e = g_buffer[g_source_index+1];
-      if (e == 'b' || e == 'B') {
-        g_operand_hint = HINT_8BIT;
-        g_operand_hint_type = HINT_TYPE_GIVEN;
-        g_source_index += 2;
-      }
-      else if (e == 'w' || e == 'W') {
-        g_operand_hint = HINT_16BIT;
-        g_operand_hint_type = HINT_TYPE_GIVEN;
-        g_source_index += 2;
-      }
-      else if (e == 'l' || e == 'L') {
-        g_operand_hint = HINT_24BIT;
-        g_operand_hint_type = HINT_TYPE_GIVEN;
-        g_source_index += 2;
-      }
-      else if (e == 'd' || e == 'D') {
-        g_operand_hint = HINT_32BIT;
-        g_operand_hint_type = HINT_TYPE_GIVEN;
-        g_source_index += 2;
-      }
-    }
+    if (e == '.')
+      _try_parse_operand_hint();
 
     if (g_operand_hint == HINT_NONE) {
       if (g_parsed_int > 0xFFFFFF)
@@ -1081,29 +1073,8 @@ int input_number(void) {
 
     e = g_buffer[g_source_index];
     
-    if (e == '.') {
-      e = g_buffer[g_source_index+1];
-      if (e == 'b' || e == 'B') {
-        g_operand_hint = HINT_8BIT;
-        g_operand_hint_type = HINT_TYPE_GIVEN;
-        g_source_index += 2;
-      }
-      else if (e == 'w' || e == 'W') {
-        g_operand_hint = HINT_16BIT;
-        g_operand_hint_type = HINT_TYPE_GIVEN;
-        g_source_index += 2;
-      }
-      else if (e == 'l' || e == 'L') {
-        g_operand_hint = HINT_24BIT;
-        g_operand_hint_type = HINT_TYPE_GIVEN;
-        g_source_index += 2;
-      }
-      else if (e == 'd' || e == 'D') {
-        g_operand_hint = HINT_32BIT;
-        g_operand_hint_type = HINT_TYPE_GIVEN;
-        g_source_index += 2;
-      }
-    }
+    if (e == '.')
+      _try_parse_operand_hint();
 
     g_parsed_double = (double)g_parsed_int;
 
@@ -1156,29 +1127,9 @@ int input_number(void) {
           q = 1;
           max_digits = MAX_FLOAT_DIGITS+1;
         }
-        else if (e == 'b' || e == 'B') {
-          g_operand_hint = HINT_8BIT;
-          g_operand_hint_type = HINT_TYPE_GIVEN;
-          g_source_index += 2;
-          break;
-        }
-        else if (e == 'w' || e == 'W') {
-          g_operand_hint = HINT_16BIT;
-          g_operand_hint_type = HINT_TYPE_GIVEN;
-          g_source_index += 2;
-          break;
-        }
-        else if (e == 'l' || e == 'L') {
-          g_operand_hint = HINT_24BIT;
-          g_operand_hint_type = HINT_TYPE_GIVEN;
-          g_source_index += 2;
-          break;
-        }
-        else if (e == 'd' || e == 'D') {
-          g_operand_hint = HINT_32BIT;
-          g_operand_hint_type = HINT_TYPE_GIVEN;
-          g_source_index += 2;
-          break;
+        else {
+          if (_try_parse_operand_hint() == SUCCEEDED)
+            break;
         }
       }
       else if ((e >= 'a' && e <= 'z') || (e >= 'A' && e <= 'Z')) {
@@ -1849,7 +1800,7 @@ int skip_next_token(void) {
 }
 
 
-int _expand_macro_arguments_one_pass(char *in, int *expands, int *move_up, int *res_type, double *res_value) {
+static int _expand_macro_arguments_one_pass(char *in, int *expands, int *move_up, int *res_type, double *res_value) {
 
   char t[MAX_NAME_LENGTH + 1];
   int i, j, k, argument_start;
@@ -2134,7 +2085,7 @@ int _expand_macro_arguments_one_pass(char *in, int *expands, int *move_up, int *
 }
 
 
-int _expand_macro_arguments(char *in, int *expands, int *type, double *value) {
+static int _expand_macro_arguments(char *in, int *expands, int *type, double *value) {
 
   int move_up = 0;
 
@@ -2276,7 +2227,7 @@ static int _save_stack_calculation(struct stack_item *stack_items, int stacksize
 
   struct stack *s;
   
-  s = calloc(sizeof(struct stack), 1);
+  s = calloc(1, sizeof(struct stack));
   if (s == NULL) {
     free(stack_items);
     print_error(ERROR_STC, "Out of memory error while allocating room for a new calculation stack.\n");
@@ -2467,11 +2418,38 @@ int parse_function(char *in, char *name, int *found_function, int *parsed_chars)
   *found_function = YES;
 
   /* is the function just a constant? */
-  if (fun->type == SUCCEEDED) {
+  if (fun->type == SUCCEEDED || fun->type == INPUT_NUMBER_FLOAT) {
+    for (i = 0; i < fun->nargument_names; i++) {
+      input_float_mode = g_input_float_mode;
+      g_input_float_mode = ON;
+      res = input_number();
+      while (res == INPUT_NUMBER_EOL) {
+        next_line();
+        res = input_number();
+      }
+      g_input_float_mode = input_float_mode;
+
+      if (res == FAILED)
+        return FAILED;
+      else if (res != SUCCEEDED && res != INPUT_NUMBER_ADDRESS_LABEL && res != INPUT_NUMBER_STACK && res != INPUT_NUMBER_FLOAT) {
+        print_error(ERROR_NUM, "Argument %d is not a value, label or a pending calculation.\n", i+1);
+        return FAILED;
+      }
+    }
+
+    if (g_buffer[g_source_index] != ')') {
+      print_error(ERROR_NUM, "Malformed \"%s()\" detected!\n", name);
+      return FAILED;
+    }
+
+    g_source_index++;
+    *parsed_chars = (int)(g_source_index - source_index_backup);
+    g_source_index = source_index_original;
+
     g_parsed_int = (int)fun->value;
     g_parsed_double = fun->value;
 
-    return SUCCEEDED;
+    return fun->type;
   }
 
   /* clone the stack calculation */

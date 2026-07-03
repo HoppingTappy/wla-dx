@@ -20,6 +20,13 @@ int is_reserved_definition(char *t);
 int strcaselesscmp(char *s1, char *s2);
 int process_label_inside_macro(int add_namespace, char *buffer, int sizeof_buffer);
 
+#if defined(MC68000)
+void ngheader_free_allocations(void);
+void mdvectors_free_allocations(void);
+void mcdheader_free_allocations(void);
+void mcdspheader_free_allocations(void);
+#endif
+
 void generate_label(char *header, char *footer);
 void reset_label_stack(void);
 int add_label_to_label_stack(char *l);
@@ -31,6 +38,7 @@ __attribute__((format(printf, 2, 3)))
 [[rscpp::format(printf, 2, 3)]]
 #endif
 void print_error(int type, char *error, ...);
+void print_current_call_stack(void);
 
 void next_line(void);
 void use_dir(char *directory, char *path);
@@ -38,5 +46,7 @@ void get_dir(char *full_path, char *tmp);
 
 int add_namespace_to_string(char *s, int sizeof_s, char *type);
 int macro_get(char *name, int add_namespace, struct macro_static **macro_out);
+int function_get(char *name, struct function **function_out);
+int function_get_with_namespace(char *name, int add_namespace, struct function **function_out);
 
 #endif

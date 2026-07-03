@@ -3,6 +3,26 @@
 import sys
 import os
 
+try:
+    from sphinx import environment as sphinx_environment
+
+    sphinx_environment.default_settings.pop('embed_images', None)
+    sphinx_environment.default_settings.setdefault('image_loading', 'link')
+except Exception:
+    pass
+
+
+def _prefer_docutils_image_loading(app):
+    settings = getattr(getattr(app, 'env', None), 'settings', None)
+    if settings is not None:
+        settings.pop('embed_images', None)
+        settings.setdefault('image_loading', 'link')
+
+
+def setup(app):
+    app.connect('builder-inited', _prefer_docutils_image_loading)
+    _prefer_docutils_image_loading(app)
+
 # -- General configuration ------------------------------------------------
 
 #needs_sphinx = '1.8.6'
@@ -17,9 +37,9 @@ source_suffix = '.rst'
 master_doc = 'wla-dx'
 project = u'wla-dx'
 copyright = u'1998, vhelin'
-version = '10.7' # The short X.Y version, can be used with |version|
-release = '10.7a' # The full version, including alpha/beta/rc tags, |release|
-language = None
+version = '10.8' # The short X.Y version, can be used with |version|
+release = '10.8a' # The full version, including alpha/beta/rc tags, |release|
+language = 'en'
 #today = ''
 #today_fmt = '%B %d, %Y'
 exclude_patterns = []
@@ -92,7 +112,7 @@ man_pages = [
 ]
 
 # Autogenerate man-files for the CPUs
-for cpu in ['gb', '65c02', '65ce02', '6502', '65816', 'huc6280', 'spc700', 'z80', '6800', '6801', '6809', '8008', '8080', 'superfx']:
+for cpu in ['gb', 'cx4', '65c02', '65ce02', '6502', '65816', 'huc6280', 'spc700', 'z80', 'z80n', 'ez80', '6800', '6801', '6809', '68000', '8008', '8080', 'superfx']:
     man_pages.append(('man/wla-cpu', 'wla-%s' % cpu, \
                       u'WLA assembler for %s' % cpu, [u'vhelin'], 1))
 

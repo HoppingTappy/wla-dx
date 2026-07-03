@@ -130,14 +130,14 @@ static void _print_find_error(char *name) {
 }
 
 
-int find_file(char *name, FILE **f, int is_full_path) {
+int find_file(char *name, FILE **f, int is_full_path, char *mode) {
 
   int index;
 
   if (is_full_path == YES) {
     create_full_name(NULL, name);
     
-    (*f) = fopen(name, "rb");
+    (*f) = fopen(name, mode);
     if (*f != NULL)
       return SUCCEEDED;
 
@@ -163,7 +163,7 @@ int find_file(char *name, FILE **f, int is_full_path) {
     return SUCCEEDED;
 
   /* if failed try to find the file in the current directory */
-  (*f) = fopen(name, "rb");
+  (*f) = fopen(name, mode);
   if (*f != NULL)
     return SUCCEEDED;
 
@@ -191,7 +191,7 @@ int include_file(char *name, int *include_size, char *namespace, int is_full_pat
   char *tmp_b, *n, change_file_buffer[MAX_NAME_LENGTH * 2];
   FILE *f = NULL;
 
-  int error_code = find_file(name, &f, is_full_path);
+  int error_code = find_file(name, &f, is_full_path, "rb");
   if (error_code != SUCCEEDED)
     return error_code;
 
@@ -214,7 +214,7 @@ int include_file(char *name, int *include_size, char *namespace, int is_full_pat
   */
 
   if (id == 0) {
-    g_file_name_info_tmp = calloc(sizeof(struct file_name_info), 1);
+    g_file_name_info_tmp = calloc(1, sizeof(struct file_name_info));
     n = calloc(strlen(g_full_name)+1, 1);
     if (g_file_name_info_tmp == NULL || n == NULL) {
       if (g_file_name_info_tmp != NULL)
@@ -479,7 +479,7 @@ int incbin_file(char *name, int *id, int *swap, int *skip, int *read, struct mac
       break;
   }
   
-  error_code = find_file(name, &f, is_full_path);
+  error_code = find_file(name, &f, is_full_path, "rb");
   if (error_code != SUCCEEDED)
     return error_code;
 
@@ -507,7 +507,7 @@ int incbin_file(char *name, int *id, int *swap, int *skip, int *read, struct mac
     file_size = (int)ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    ifd = (struct incbin_file_data *)calloc(sizeof(struct incbin_file_data), 1);
+    ifd = (struct incbin_file_data *)calloc(1, sizeof(struct incbin_file_data));
     n = calloc(sizeof(char) * (strlen(g_full_name)+1), 1);
     in_tmp = (char *)calloc(sizeof(char) * file_size, 1);
     if (ifd == NULL || n == NULL || in_tmp == NULL) {

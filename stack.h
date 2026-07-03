@@ -5,6 +5,7 @@
 int get_label_length(char *l);
 int stack_calculate_free_allocations(void);
 int stack_calculate(char *in, int *value, int *bytes_parsed, unsigned char from_substitutor);
+int stack_create_value_stack(double value);
 int stack_create_label_stack(char *label);
 int stack_create_stack_stack(int stack_id);
 int resolve_stack(struct stack_item s[], int stack_item_count);
@@ -26,10 +27,10 @@ int does_stack_contain_one_label(int id);
 /* TODO: move these to their own file */
 int data_stream_parser_free(void);
 int data_stream_parser_parse(void);
-int data_stream_parser_get_current_bank(void);
-int data_stream_parser_get_current_base(void);
-struct section_def *data_stream_parser_get_current_section(void);
-int data_stream_parser_get_current_address(void);
+int data_stream_parser_get_bank(void);
+int data_stream_parser_get_base(void);
+struct section_def *data_stream_parser_get_section(void);
+int data_stream_parser_get_address(void);
 
 #endif
 

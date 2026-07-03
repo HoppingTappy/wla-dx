@@ -1,6 +1,6 @@
 
 /*
-  wla - part of wla dx gb-z80/z80/z80n/6502/65c02/68000/6800/6801/6809/65816/huc6280/spc-700/8008/8080/SuperFX
+  wla - part of wla dx gb-z80/z80/z80n/ez80/6502/65c02/68000/6800/6801/6809/65816/huc6280/spc-700/8008/8080/SuperFX/Cx4/SH-2
   macro assembler package by ville helin <ville.helin@iki.fi>. this is gpl software.
 */
 
@@ -34,8 +34,8 @@ FILE *g_file_out_ptr = NULL;
 __near long __stack = 200000;
 #endif
 
-char s_version_string[] = "$VER: wla-" WLA_NAME " 10.7a (17.11.2025)";
-char s_wla_version[] = "10.7";
+char s_version_string[] = "$VER: wla-" WLA_NAME " 10.8a (1.7.2026)";
+char s_wla_version[] = "10.8";
 
 extern struct incbin_file_data *g_incbin_file_data_first, *g_ifd_tmp;
 extern struct file_name_info *g_file_name_info_first;
@@ -61,6 +61,8 @@ extern struct structure **g_saved_structures;
 extern struct string *g_fopen_filenames_first, *g_fopen_filenames_last;
 extern struct function *g_functions_first, *g_functions_last;
 extern struct namespace *g_namespaces_first;
+extern struct assertion *g_assertions_first;
+extern struct call_stack_item *g_call_stack_items_first;
 extern char g_mem_insert_action[MAX_NAME_LENGTH*3 + 1024], g_latest_include_dir[MAX_NAME_LENGTH + 1];
 extern char *g_label_stack[256], *g_tmp, *g_global_listfile_cmds, g_latest_label[MAX_NAME_LENGTH + 1];
 extern char *g_include_in_tmp, *g_tmp_a;
@@ -74,7 +76,7 @@ int g_extra_definitions = OFF, g_commandline_parsing = ON, g_makefile_rules = NO
 FILE *g_makefile_rule_file = NULL;
 int g_listfile_data = NO, g_quiet = NO, g_use_incdir = NO, g_little_endian = YES;
 int g_create_sizeof_definitions = YES, g_global_label_hint = HINT_NONE, g_keep_empty_sections = NO;
-int g_can_calculate_a_minus_b = YES, g_is_file_isolated_counter = 0;
+int g_can_calculate_a_minus_b = YES, g_is_file_isolated_counter = 0, g_print_call_stack_on_exit = NO;
 int g_continue_parsing_after_an_error = NO, g_continued_parsing_after_an_error = NO;
 int g_allow_labels_without_colon = YES, g_is_data_stream_parser_enabled = YES;
 
@@ -515,11 +517,17 @@ static int _parse_flags(char **flags, int flagc, int *print_usage) {
       g_test_mode = ON;
       test_given = YES;
     }
-    else if (!strcmp(flags[count], "-M"))
+    else if (!strcmp(flags[count], "-M")) {
       g_makefile_rules = YES;
-    else if (!strcmp(flags[count], "-MP"))
+      g_makefile_rule_file = stdout;
+      g_test_mode = ON;
+      g_verbose_level = 0;
+      g_quiet = YES;
+      g_makefile_skip_file_handling = NO;
+    }
+    else if (!strcmp(flags[count], "-MP") && g_makefile_rules == YES)
       g_makefile_add_phony_targets = YES;
-    else if (!strcmp(flags[count], "-MF")) {
+    else if (!strcmp(flags[count], "-MF") && g_makefile_rules == YES) {
       if (count + 1 < flagc) {
         g_makefile_rule_file = fopen(flags[count+1], "w");
         if (g_makefile_rule_file == NULL)
@@ -529,8 +537,8 @@ static int _parse_flags(char **flags, int flagc, int *print_usage) {
         return FAILED;
       count++;
     }
-    else if (!strcmp(flags[count], "-MG"))
-      g_makefile_skip_file_handling = NO;
+    else if (!strcmp(flags[count], "-MG") && g_makefile_rules == YES)
+      g_makefile_skip_file_handling = YES;
     else if (!strcmp(flags[count], "-MD"))
       g_test_mode = OFF;
     else if (!strcmp(flags[count], "-q"))
@@ -563,13 +571,6 @@ static int _parse_flags(char **flags, int flagc, int *print_usage) {
           return FAILED;
       }
     }
-  }
-
-  if (g_makefile_rules == YES && g_makefile_rule_file == stdout) {
-    g_test_mode = ON;
-    g_verbose_level = 0;
-    g_quiet = YES;
-    g_makefile_skip_file_handling = YES;
   }
 
   /* make sure test mode is still turned on! */
@@ -644,7 +645,13 @@ static void _procedures_at_exit(void) {
   struct block_name *bn;
   struct array *ar1, *ar2;
   struct string *strings;
+  struct assertion *assertion;
   int i, index;
+
+  /* delayed printing of call stack as errors might output multiple lines of text
+     from different places in code */
+  if (g_print_call_stack_on_exit == YES)
+    print_current_call_stack();
   
   /* free all the dynamically allocated data structures and close open files */
   if (g_file_out_ptr != NULL) {
@@ -755,6 +762,14 @@ static void _procedures_at_exit(void) {
     m = g_macros_first;
   }
 
+  while (g_call_stack_items_first != NULL) {
+    struct call_stack_item *csi;
+
+    csi = g_call_stack_items_first->next;
+    free(g_call_stack_items_first);
+    g_call_stack_items_first = csi;
+  }
+  
   g_label_tmp = g_labels;
   while (g_label_tmp != NULL) {
     g_labels = g_label_tmp->next;
@@ -810,6 +825,12 @@ static void _procedures_at_exit(void) {
     struct namespace *next = g_namespaces_first->next;
     free(g_namespaces_first);
     g_namespaces_first = next;
+  }
+
+  while (g_assertions_first != NULL) {
+    assertion = g_assertions_first->next;
+    free(g_assertions_first);
+    g_assertions_first = assertion;
   }
 
   free_stack_calculations();
@@ -908,6 +929,13 @@ static void _procedures_at_exit(void) {
   free(g_sdsctag_name_str);
   free(g_sdsctag_notes_str);
   free(g_sdsctag_author_str);
+#endif
+
+#if defined(MC68000)
+  ngheader_free_allocations();
+  mdvectors_free_allocations();
+  mcdheader_free_allocations();
+  mcdspheader_free_allocations();
 #endif
 
   PROFILE_AT_EXIT();
@@ -1029,7 +1057,7 @@ int main(int argc, char *argv[]) {
   g_ext_incdirs.max_name_size_bytes = MAX_NAME_LENGTH + 1;
 
   /* select little/big endianess */
-#if defined(MC6800) || defined(MC6801) || defined(MC6809) || defined(MC68000) || defined(K053248)
+#if defined(MC6800) || defined(MC6801) || defined(MC6809) || defined(MC68000) || defined(K053248) || defined(SH2)
   g_little_endian = NO;
 #else
   g_little_endian = YES;
@@ -1083,7 +1111,7 @@ int main(int argc, char *argv[]) {
   }
 
   if (g_output_format == OUTPUT_NONE || parse_flags_result == FAILED) {
-    char title[] = "WLA " ARCH_STR " Macro Assembler v10.7a";
+    char title[] = "WLA " ARCH_STR " Macro Assembler v10.8a";
     int length, left, right;
 
     length = (int)strlen(title);
@@ -1130,11 +1158,11 @@ int main(int argc, char *argv[]) {
     print_text(YES, "-k  Keep empty sections\n");
     print_text(YES, "-M  Enable makefile generation\n");
     print_text(YES, "-MP Create a phony target for each dependency other than the main file,\n");
-    print_text(YES, "    use this with -M\n");
+    print_text(YES, "    use this after -M\n");
     print_text(YES, "-MF <FILE> Specify a file to write the dependencies to instead of stdout,\n");
-    print_text(YES, "    use with -M\n");
-    print_text(YES, "-MG Enable fake file handling, use with -M\n");
-    print_text(YES, "-MD Request .o generation, use with -M\n");
+    print_text(YES, "    use this after -M\n");
+    print_text(YES, "-MG Enable fake file handling, use this after -M\n");
+    print_text(YES, "-MD Request .o generation, use this after -M\n");
     print_text(YES, "-p  Pause printing after a screen full of text has been printed,\n");
     print_text(YES, "    use this with -SX and -SY\n");
     print_text(YES, "-q  Quiet\n");
